@@ -2,12 +2,14 @@
 
 import logging
 from collections.abc import Callable
+from datetime import datetime
 
 from homeassistant.config_entries import SOURCE_INTEGRATION_DISCOVERY, ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.event import async_call_later
 
 from .const import (
     CONF_PACK_ID,
@@ -19,12 +21,14 @@ from .const import (
 from .eflib import DeviceBase
 from .eflib.devices import stream_ac_5000
 from .eflib.pack import DEFAULT_REPORT_INTERVAL, PACK_KEYS, Pack
+from .registry import async_get_device
 
 PACK_PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.NUMBER, Platform.SWITCH]
 
 _PACKS_KEY = f"{DOMAIN}_packs"
 # Every unit used to own this control, so its oldest entity tells which one came first
 _FIRST_UNIT_KEY = "energy_backup_battery_level"
+_LINK_DELAY = 30
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -129,7 +133,8 @@ def async_track_member(hass: HomeAssistant, device: DeviceBase) -> Callable[[], 
             current.append(pack)
         _async_remember_unit(hass, pack_id, device.serial_number)
         _async_remove_unit_duplicates(hass, pack)
-        _async_link_units(hass, pack)
+        if (entry := _pack_entry(hass, pack_id)) is not None:
+            _async_link_units(hass, entry, pack)
         hass.async_create_task(_async_ensure_entry(hass, pack_id, device.serial_number))
 
     device.register_state_update_callback(join, "pack_id")
@@ -172,28 +177,59 @@ def _unit_address(hass: HomeAssistant, serial: str) -> str | None:
     return None
 
 
-def _async_link_units(hass: HomeAssistant, pack: Pack) -> None:
+def _async_take_over_device(
+    hass: HomeAssistant, unit_device: dr.DeviceEntry, identifier: tuple[str, str]
+) -> dr.DeviceEntry:
+    """Take the name and area of the unit's Bluetooth device, and remove it once empty"""
+    registry = dr.async_get(hass)
+    entities = er.async_get(hass)
+    for device in list(registry.devices.values()):
+        if identifier not in device.identifiers or device.id == unit_device.id:
+            continue
+        unit_device = registry.async_update_device(
+            unit_device.id,
+            name_by_user=unit_device.name_by_user or device.name_by_user,
+            area_id=unit_device.area_id or device.area_id,
+        )
+        if not er.async_entries_for_device(
+            entities, device.id, include_disabled_entities=True
+        ):
+            registry.async_remove_device(device.id)
+    return unit_device
+
+
+def _async_link_units(hass: HomeAssistant, entry: ConfigEntry, pack: Pack) -> None:
     """Show the units under their pack, which also takes the area they are in"""
     registry = dr.async_get(hass)
-    pack_device = registry.async_get_device(identifiers={(DOMAIN, pack.address)})
+    pack_device = async_get_device(
+        registry,
+        identifiers={(DOMAIN, pack.address)},
+        config_entry_id=entry.entry_id,
+    )
     if pack_device is None:
         return
 
-    for member in pack.members:
-        unit = registry.async_get_device(identifiers={(DOMAIN, member.address)})
-        if unit is None:
+    for unit in pack.units.values():
+        identifier = (DOMAIN, unit.address)
+        unit_device = async_get_device(
+            registry, identifiers={identifier}, config_entry_id=entry.entry_id
+        )
+        if unit_device is None:
             continue
-        if unit.via_device_id != pack_device.id:
-            registry.async_update_device(unit.id, via_device_id=pack_device.id)
-        # The unit now lives under the pack, and its own entry only holds the connection.
-        # A device needs an entry, so leave only once the pack's is on it
-        if pack_device.config_entries & unit.config_entries:
-            for entry_id in unit.config_entries - pack_device.config_entries:
-                registry.async_update_device(unit.id, remove_config_entry_id=entry_id)
-        if pack_device.area_id is None and unit.area_id is not None:
+        unit_device = _async_take_over_device(hass, unit_device, identifier)
+        if unit_device.via_device_id != pack_device.id:
+            registry.async_update_device(unit_device.id, via_device_id=pack_device.id)
+        if pack_device.area_id is None and unit_device.area_id is not None:
             pack_device = registry.async_update_device(
-                pack_device.id, area_id=unit.area_id
+                pack_device.id, area_id=unit_device.area_id
             )
+
+
+def _pack_entry(hass: HomeAssistant, pack_id: str) -> ConfigEntry | None:
+    for entry in hass.config_entries.async_entries(DOMAIN):
+        if is_pack_entry(entry) and entry.data[CONF_PACK_ID] == pack_id:
+            return entry
+    return None
 
 
 async def async_setup_pack_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -217,5 +253,12 @@ async def async_setup_pack_entry(hass: HomeAssistant, entry: ConfigEntry) -> boo
     pack.new_unit_listeners.clear()
     await hass.config_entries.async_forward_entry_setups(entry, PACK_PLATFORMS)
     _async_remove_unit_duplicates(hass, pack)
-    _async_link_units(hass, pack)
+    _async_link_units(hass, entry, pack)
+
+    # Entities reach the registry after this returns, and a unit's device with them
+    @callback
+    def link_again(_now: datetime) -> None:
+        _async_link_units(hass, entry, pack)
+
+    entry.async_on_unload(async_call_later(hass, _LINK_DELAY, link_again))
     return True

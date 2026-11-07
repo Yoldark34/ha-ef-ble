@@ -157,11 +157,13 @@ class PackUnit(_VirtualDevice):
 
     @property
     def name(self) -> str:
-        return self.serial_number
+        return f"{self.device} {self.serial_number[-4:]}"
 
     @property
     def device(self) -> str:
-        return self.__doc__ or ""
+        return (
+            "STREAM 5000" if self.serial_number.startswith("ES21") else "STREAM AC 5000"
+        )
 
     @property
     def is_connected(self) -> bool:
