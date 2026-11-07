@@ -1034,6 +1034,12 @@
       },
       "battery_ac_output_power": {
         "name": "Battery AC Output Power"
+      },
+      "battery_full_capacity": {
+        "name": "Full Capacity"
+      },
+      "battery_remaining_energy": {
+        "name": "Remaining Energy"
       }
     },
     "select": {

@@ -81,6 +81,8 @@ class Device(DeviceBase, ProtobufProps):
     remaining_time_discharging = pb_field(
         pb.sys_battery_info_report.discharge_remain_time
     )
+    battery_full_capacity = pb_field(pb.sys_battery_info_report.full_cap)
+    battery_remaining_energy = pb_field(pb.sys_battery_info_report.remain_cap)
 
     _sub_dev_battery_power = repeated_pb_field(
         pb.system_sub_dev_energy_flow_detail.dev_energy_flow_detail,

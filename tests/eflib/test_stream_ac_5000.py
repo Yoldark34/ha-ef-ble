@@ -202,6 +202,14 @@ async def test_stream_ac_5000_zeroes_readings_a_posted_block_leaves_out(
     assert device.load_from_grid == 887
 
 
+async def test_stream_ac_5000_reports_battery_capacity(device):
+    # a unit at 58 %, which is what 2903 Wh of 5008 Wh comes to
+    await device.data_parse(_telemetry("e20212083a1017180020902728d71630b22e38b32e"))
+
+    assert device.battery_full_capacity == 5008
+    assert device.battery_remaining_energy == 2903
+
+
 async def test_stream_ac_5000_exact_values_from_known_packets(
     device, payload_sequence, routed_frame
 ):

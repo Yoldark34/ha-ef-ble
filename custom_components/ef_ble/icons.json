@@ -140,6 +140,12 @@
       "house_grid_power": {
         "default": "mdi:transmission-tower-import"
       },
+      "battery_full_capacity": {
+        "default": "mdi:battery-high"
+      },
+      "battery_remaining_energy": {
+        "default": "mdi:battery-50"
+      },
       "backup_port_power": {
         "default": "mdi:power-plug-battery-outline"
       },

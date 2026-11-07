@@ -912,6 +912,8 @@ _SENSORS: Final[dict[str, SensorEntityDescription]] = {
     "battery_power": power(precision=1),
     "battery_ac_input_power": power(precision=1),
     "battery_ac_output_power": power(precision=1),
+    "battery_full_capacity": energy_storage(),
+    "battery_remaining_energy": energy_storage(),
     "inverter_temperature": temperature(),
     "inverter_current": current(precision=2),
     "inverter_power": power(precision=0),
