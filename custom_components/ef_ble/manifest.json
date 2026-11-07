@@ -3,6 +3,12 @@
     "name": "EcoFlow BLE (Unofficial)",
     "bluetooth": [
         {
+            "local_name": "EF-ES2*",
+            "manufacturer_id": 46517,
+            "manufacturer_data_start": [19, 69, 83, 50, 50],
+            "connectable": true
+        },
+        {
             "local_name": "EF-HD3*",
             "manufacturer_id": 46517,
             "manufacturer_data_start": [19, 72, 68, 51, 49],
