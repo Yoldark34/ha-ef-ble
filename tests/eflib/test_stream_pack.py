@@ -443,6 +443,16 @@ async def test_standby_shows_its_zeros_at_once(limited_pack):
     assert limited_pack.grid_in_power_limit == 0
 
 
+async def test_pack_keeps_an_interval_a_unit_can_not_take_yet(pack, master, slave):
+    # no unit has sent the report that gives its other periods yet
+    await pack.set_report_interval(45)
+
+    assert pack.desired_report_interval == 45
+    assert pack.report_interval == 45
+    master._conn.send_packet.assert_not_awaited()
+    slave._conn.send_packet.assert_not_awaited()
+
+
 async def test_pack_command_fails_loudly_when_no_unit_answers(pack, master, slave):
     master._conn.send_packet.side_effect = NotConnectedError("gone")
     slave._conn.send_packet.side_effect = NotConnectedError("gone")

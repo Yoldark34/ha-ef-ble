@@ -621,8 +621,10 @@ class Pack(_VirtualDevice):
             raise NotConnectedError("No unit of the pack can be reached")
         self.desired_report_interval = seconds
         self.on_report_interval_chosen(seconds)
+        # A unit that has not reported its periods yet gets this once it does
         for member in members:
-            await member.set_report_interval(seconds)
+            if member.knows_report_periods:
+                await member.set_report_interval(seconds)
         self._show("report_interval", seconds)
         return True
 

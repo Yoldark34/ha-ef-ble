@@ -334,22 +334,29 @@ class Device(DeviceBase, ProtobufProps):
         packet = self._routing.write_packet(message.SerializeToString())
         await self.send_packet(packet, raise_on_failure=True)
 
-    async def set_report_interval(self, seconds: float):
-        # The block is written whole, so the other periods have to go out as they are
-        others = (
+    @property
+    def knows_report_periods(self) -> bool:
+        return None not in (
             self._display_incremental_period,
             self._runtime_full_period,
             self._runtime_incremental_period,
         )
-        if None in others:
+
+    async def set_report_interval(self, seconds: float):
+        # The block is written whole, so the other periods have to go out as they are
+        if not self.knows_report_periods:
             raise ValueError(f"{self.name}: upload periods are not known yet")
 
         await self._write_property(
             es22_bkw_pb2.PropertyUploadPeriod(
                 display_property_full_upload_period=int(seconds * 1000),
-                display_property_incremental_upload_period=others[0],
-                runtime_property_full_upload_period=others[1],
-                runtime_property_incremental_upload_period=others[2],
+                display_property_incremental_upload_period=(
+                    self._display_incremental_period
+                ),
+                runtime_property_full_upload_period=self._runtime_full_period,
+                runtime_property_incremental_upload_period=(
+                    self._runtime_incremental_period
+                ),
             )
         )
         return True
