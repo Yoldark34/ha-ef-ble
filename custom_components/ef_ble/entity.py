@@ -12,7 +12,7 @@ from homeassistant.loader import async_get_loaded_integration
 from .const import DOMAIN, MANUFACTURER
 from .eflib import DeviceBase
 from .eflib.device_mappings import battery_name_from_device
-from .eflib.pack import Pack
+from .eflib.pack import Pack, PackUnit
 from .registry import async_get_device
 
 # Names these share with a single battery would read wrong on a pack
@@ -63,6 +63,9 @@ class EcoflowEntity(Entity):
                 model=self._device.device,
                 sw_version=self._integration_version,
             )
+
+        if isinstance(self._device, PackUnit):
+            return DeviceInfo(identifiers={(DOMAIN, self._device.address)})
 
         return DeviceInfo(
             identifiers={

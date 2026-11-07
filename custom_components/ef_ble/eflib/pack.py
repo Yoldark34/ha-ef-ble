@@ -1,5 +1,6 @@
 """A pack of linked STREAM units, seen as one device"""
 
+import asyncio
 import logging
 from collections import defaultdict
 from collections.abc import Callable
@@ -17,6 +18,7 @@ from .props.updatable_props import UpdatableProps
 
 if TYPE_CHECKING:
     from .devices.stream_ac_5000 import Device as Member
+    from .devices.stream_ac_5000 import UnitReport
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -43,6 +45,7 @@ _MEMBER_FIELDS = {
 
 # What the app reports as the pack's charging limit, with no higher value on offer
 _GRID_IN_POWER_MAX = 3000
+DEFAULT_REPORT_INTERVAL = 30
 
 # Keys the pack owns, so a member must not keep an entity of its own for them
 PACK_KEYS = frozenset(
@@ -63,7 +66,131 @@ class PackStatus(IntFieldValue):
     READY = 3
 
 
-class Pack(UpdatableProps):
+class _VirtualDevice(UpdatableProps):
+    """What entities need of a device, for one that is not a connection of its own"""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._callbacks_map: dict[str, set[Callable[[], None]]] = defaultdict(set)
+        self._state_callbacks: dict[str, set[Callable[[Any], None]]] = defaultdict(set)
+
+    def register_callback(
+        self, callback: Callable[[], None], propname: str | None = None
+    ) -> None:
+        self._callbacks_map[propname or ""].add(callback)
+
+    def remove_callback(
+        self, callback: Callable[[], None], propname: str | None = None
+    ) -> None:
+        self._callbacks_map[propname or ""].discard(callback)
+
+    def register_state_update_callback(
+        self, state_update_callback: Callable[[Any], None], propname: str
+    ) -> None:
+        self._state_callbacks[propname].add(state_update_callback)
+
+    def remove_state_update_callback(
+        self, callback: Callable[[Any], None], propname: str
+    ) -> None:
+        self._state_callbacks[propname].discard(callback)
+
+    def update_callback(self, propname: str) -> None:
+        for callback in self._callbacks_map[propname]:
+            callback()
+
+    def update_state(self, propname: str, value: Any) -> None:
+        for callback in self._state_callbacks[propname]:
+            callback(value)
+
+    def publish_availability(self) -> None:
+        # Entities read `is_connected` when they write their state, and nothing else
+        # makes them write it when a connection comes or goes
+        self.reset_updated()
+        self._notify_updated()
+        for propname in list(self._state_callbacks):
+            self.update_state(propname, getattr(self, propname))
+        for propname in list(self._callbacks_map):
+            self.update_callback(propname)
+
+
+class PackUnit(_VirtualDevice):
+    """
+    One battery as the pack sees it
+
+    Its own posts and the master's list of units feed the same fields, so the latest
+    report wins and the unit keeps reporting while either of the two is reachable. Only
+    what the master does not relay, temperature and capacity, needs the unit's own link.
+    """
+
+    battery_level_main = Field[int]()
+    unit_battery_power = Field[int]()
+    unit_grid_power = Field[int]()
+    backup_port_power = Field[int]()
+
+    def __init__(self, pack: "Pack", serial_number: str, address: str) -> None:
+        super().__init__()
+        self._pack = pack
+        self.serial_number = serial_number
+        self.address = address
+
+    @property
+    def name(self) -> str:
+        return self.serial_number
+
+    @property
+    def device(self) -> str:
+        return self.__doc__ or ""
+
+    @property
+    def is_connected(self) -> bool:
+        return self._pack.is_connected
+
+    @computed_field
+    def unit_battery_ac_input_power(self) -> float | None:
+        return ppositive()(self.unit_battery_power)
+
+    @computed_field
+    def unit_battery_ac_output_power(self) -> float | None:
+        return pnegative()(self.unit_battery_power)
+
+    def apply(self, report: "UnitReport") -> None:
+        self.reset_updated()
+        for name, value in (
+            ("battery_level_main", report.soc),
+            ("unit_battery_power", report.battery_power),
+            ("unit_grid_power", report.grid_power),
+            ("backup_port_power", report.backup_power),
+        ):
+            if value is not None:
+                setattr(self, name, value)
+        self._apply_solar(report)
+        self._notify_updated()
+
+    def _apply_solar(self, report: "UnitReport") -> None:
+        pass
+
+
+class SolarPackUnit(PackUnit):
+    """A battery with solar inputs, from the same report the app reads them in"""
+
+    pv_power_1 = Field[int]()
+    pv_power_2 = Field[int]()
+    pv_power_3 = Field[int]()
+    pv_power_4 = Field[int]()
+
+    def _apply_solar(self, report: "UnitReport") -> None:
+        if report.pv_power is None:
+            return
+        self.pv_power_1, self.pv_power_2, self.pv_power_3, self.pv_power_4 = (
+            report.pv_power
+        )
+
+
+def _unit_class(serial_number: str) -> type[PackUnit]:
+    return SolarPackUnit if serial_number.startswith("ES21") else PackUnit
+
+
+class Pack(_VirtualDevice):
     """STREAM 5000 Pack"""
 
     battery_level = Field[int]()
@@ -87,9 +214,15 @@ class Pack(UpdatableProps):
         super().__init__()
         self._pack_id = pack_id
         self.serial_number = serial_number
-        self._members: dict[Member, list[tuple[Callable[[Any], None], str]]] = {}
-        self._callbacks_map: dict[str, set[Callable[[], None]]] = defaultdict(set)
-        self._state_callbacks: dict[str, set[Callable[[Any], None]]] = defaultdict(set)
+        self.units: dict[str, PackUnit] = {}
+        self.desired_report_interval = DEFAULT_REPORT_INTERVAL
+        # How the host keeps what can't live here: where a unit's device is, what the
+        # owner chose, and which entities a new unit needs
+        self.resolve_unit_address: Callable[[str], str | None] = lambda _serial: None
+        self.on_report_interval_chosen: Callable[[float], None] = lambda _seconds: None
+        self.on_new_unit: Callable[[PackUnit], None] = lambda _unit: None
+        self._members: dict[Member, list[Callable[[], None]]] = {}
+        self._tasks: set[asyncio.Task[Any]] = set()
 
     @property
     def address(self) -> str:
@@ -137,31 +270,65 @@ class Pack(UpdatableProps):
         if member in self._members:
             return
 
-        self._members[member] = []
+        stops: list[Callable[[], None]] = [member.on_unit_report(self._apply_report)]
+        self._members[member] = stops
         for member_field, pack_field in _MEMBER_FIELDS.items():
 
-            def update(value: Any, pack_field: str = pack_field) -> None:
+            def update(
+                value: Any,
+                pack_field: str = pack_field,
+                member_field: str = member_field,
+            ) -> None:
                 self._update(pack_field, value)
 
             member.register_state_update_callback(update, member_field)
-            self._members[member].append((update, member_field))
+            stops.append(
+                lambda update=update, member_field=member_field: (
+                    member.remove_state_update_callback(update, member_field)
+                )
+            )
             update(getattr(member, member_field))
-        self._publish_availability()
+
+        def enforce(seconds: float | None) -> None:
+            self._enforce_report_interval(member, seconds)
+
+        member.register_state_update_callback(enforce, "pack_report_interval")
+        stops.append(
+            lambda: member.remove_state_update_callback(enforce, "pack_report_interval")
+        )
+        self._unit(member.serial_number, member.address)
+        self._publish_all()
 
     def detach(self, member: "Member") -> None:
-        for update, member_field in self._members.pop(member, []):
-            member.remove_state_update_callback(update, member_field)
-        self._publish_availability()
+        for stop in self._members.pop(member, []):
+            stop()
+        self._publish_all()
 
-    def _publish_availability(self) -> None:
-        # Entities read `is_connected` when they write their state, and nothing else
-        # makes them write it when the last unit leaves
-        self.reset_updated()
-        self._notify_updated()
-        for propname in list(self._state_callbacks):
-            self.update_state(propname, getattr(self, propname))
-        for propname in list(self._callbacks_map):
-            self.update_callback(propname)
+    def _publish_all(self) -> None:
+        self.publish_availability()
+        for unit in self.units.values():
+            unit.publish_availability()
+
+    def _unit(self, serial_number: str, address: str | None = None) -> PackUnit:
+        if (unit := self.units.get(serial_number)) is not None:
+            return unit
+
+        address = (
+            address
+            or self.resolve_unit_address(serial_number)
+            or f"unit_{serial_number}"
+        )
+        unit = _unit_class(serial_number)(self, serial_number, address)
+        self.units[serial_number] = unit
+        self.on_new_unit(unit)
+        return unit
+
+    def known_unit(self, serial_number: str) -> None:
+        """Set up a unit from a previous run, before anything reports it"""
+        self._unit(serial_number)
+
+    def _apply_report(self, report: "UnitReport") -> None:
+        self._unit(report.serial).apply(report)
 
     def _update(self, pack_field: str, value: Any) -> None:
         if value is None:
@@ -170,33 +337,21 @@ class Pack(UpdatableProps):
         setattr(self, pack_field, value)
         self._notify_updated()
 
-    def register_callback(
-        self, callback: Callable[[], None], propname: str | None = None
-    ) -> None:
-        self._callbacks_map[propname or ""].add(callback)
+    def _enforce_report_interval(self, member: "Member", seconds: float | None) -> None:
+        # A unit falls back to its own period whenever its link drops, so what the owner
+        # chose has to be sent again each time it reports another one
+        if seconds is None or seconds == self.desired_report_interval:
+            return
+        task = asyncio.create_task(
+            member.set_report_interval(self.desired_report_interval)
+        )
+        self._tasks.add(task)
+        task.add_done_callback(self._finish_task)
 
-    def remove_callback(
-        self, callback: Callable[[], None], propname: str | None = None
-    ) -> None:
-        self._callbacks_map[propname or ""].discard(callback)
-
-    def register_state_update_callback(
-        self, state_update_callback: Callable[[Any], None], propname: str
-    ) -> None:
-        self._state_callbacks[propname].add(state_update_callback)
-
-    def remove_state_update_callback(
-        self, callback: Callable[[Any], None], propname: str
-    ) -> None:
-        self._state_callbacks[propname].discard(callback)
-
-    def update_callback(self, propname: str) -> None:
-        for callback in self._callbacks_map[propname]:
-            callback()
-
-    def update_state(self, propname: str, value: Any) -> None:
-        for callback in self._state_callbacks[propname]:
-            callback(value)
+    def _finish_task(self, task: "asyncio.Task[Any]") -> None:
+        self._tasks.discard(task)
+        if not task.cancelled() and (error := task.exception()) is not None:
+            _LOGGER.debug("Could not set the report interval: %s", error)
 
     def _by_priority(self) -> "list[Member]":
         # Roles change over the life of a pack, so read them at each command. The sort
@@ -255,6 +410,8 @@ class Pack(UpdatableProps):
         members = [member for member in self._members if member.is_connected]
         if not members:
             raise NotConnectedError("No unit of the pack can be reached")
+        self.desired_report_interval = seconds
+        self.on_report_interval_chosen(seconds)
         for member in members:
             await member.set_report_interval(seconds)
         return True

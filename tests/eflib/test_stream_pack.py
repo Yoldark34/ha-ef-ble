@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 from bleak.exc import BleakError
 from pytest_mock import MockerFixture
@@ -6,6 +8,7 @@ from custom_components.ef_ble.eflib.devices import stream_5000, stream_ac_5000
 from custom_components.ef_ble.eflib.exceptions import NotConnectedError
 from custom_components.ef_ble.eflib.pack import Pack, PackStatus
 from custom_components.ef_ble.eflib.packet import Packet
+from custom_components.ef_ble.eflib.pb import es22_bkw_pb2
 
 MASTER = "da01021001"
 SLAVE = "da01021002"
@@ -149,6 +152,95 @@ async def test_pack_is_offline_without_any_unit(pack, master, slave):
     pack.detach(master)
 
     assert pack.pack_status is PackStatus.OFFLINE
+
+
+def _master_list(*entries: dict) -> str:
+    message = es22_bkw_pb2.DisplayPropertyUpload()
+    for entry in entries:
+        message.system_sub_dev_energy_flow_detail.dev_energy_flow_detail.add(**entry)
+    return message.SerializeToString().hex()
+
+
+async def test_pack_fills_a_unit_from_the_master_alone(pack, master, slave):
+    # the shape of a real post: the slave working, the master idle
+    slave._conn = None
+    await master.data_parse(
+        _telemetry(
+            _master_list(
+                {"dev_sn": master.serial_number, "dev_soc": 59.0},
+                {
+                    "dev_sn": slave.serial_number,
+                    "dev_soc": 58.0,
+                    "bp_pwr": -106.0,
+                    "on_grid_pwr": 106.0,
+                },
+            )
+        )
+    )
+
+    unit = pack.units[slave.serial_number]
+    assert unit.battery_level_main == 58
+    assert unit.unit_battery_power == -106
+    assert unit.unit_battery_ac_output_power == 106
+    assert pack.units[master.serial_number].unit_battery_power == 0
+
+
+async def test_pack_unit_takes_the_latest_report_of_either_source(pack, master, slave):
+    entry = {"dev_sn": slave.serial_number, "bp_pwr": -106.0}
+    await master.data_parse(_telemetry(_master_list(entry)))
+
+    own = es22_bkw_pb2.DisplayPropertyUpload()
+    own.dev_energy_stream_report.bp_pwr = -80
+    await slave.data_parse(_telemetry(own.SerializeToString().hex()))
+    assert pack.units[slave.serial_number].unit_battery_power == -80
+
+    await master.data_parse(_telemetry(_master_list(entry)))
+    assert pack.units[slave.serial_number].unit_battery_power == -106
+
+
+async def test_pack_works_the_same_when_the_other_unit_is_master(pack, master, slave):
+    await slave.data_parse(_telemetry(MASTER))
+    await master.data_parse(_telemetry(SLAVE))
+    await slave.data_parse(
+        _telemetry(_master_list({"dev_sn": master.serial_number, "bp_pwr": 200.0}))
+    )
+
+    assert pack.units[master.serial_number].unit_battery_power == 200
+
+
+async def test_pack_reports_the_solar_inputs_of_a_stream_5000(pack, slave):
+    own = es22_bkw_pb2.DisplayPropertyUpload()
+    own.dev_energy_stream_report.pv1_pwr = 321
+    own.dev_energy_stream_report.pv3_pwr = 45
+    await slave.data_parse(_telemetry(own.SerializeToString().hex()))
+
+    unit = pack.units[slave.serial_number]
+    assert (unit.pv_power_1, unit.pv_power_2, unit.pv_power_3) == (321, 0, 45)
+
+
+async def test_pack_unit_without_solar_has_no_solar_input(pack, master):
+    assert not hasattr(pack.units[master.serial_number], "pv_power_1")
+
+
+async def test_pack_sends_the_chosen_interval_again_when_a_unit_lost_it(
+    mocker, pack, master
+):
+    send = mocker.patch.object(master, "set_report_interval", mocker.AsyncMock())
+    pack.desired_report_interval = 30
+
+    master.update_state("pack_report_interval", 120.0)
+    await asyncio.gather(*pack._tasks)
+
+    send.assert_awaited_once_with(30)
+
+
+async def test_pack_leaves_a_unit_already_on_the_chosen_interval(mocker, pack, master):
+    send = mocker.patch.object(master, "set_report_interval", mocker.AsyncMock())
+
+    master.update_state("pack_report_interval", 30.0)
+
+    assert not pack._tasks
+    send.assert_not_awaited()
 
 
 async def test_pack_command_fails_loudly_when_no_unit_answers(pack, master, slave):

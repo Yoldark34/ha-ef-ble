@@ -46,7 +46,7 @@ from .eflib.devices import (
     wave3,
 )
 from .eflib.entity import units
-from .eflib.pack import PackStatus
+from .eflib.pack import Pack, PackStatus, PackUnit
 from .eflib.props.enums import IntFieldValue
 from .entity import (
     DeviceNamedEntity,
@@ -921,7 +921,7 @@ _SENSORS: Final[dict[str, SensorEntityDescription]] = {
     "unit_battery_ac_output_power": power(
         precision=1, translation_key="battery_ac_output_power"
     ),
-    "unit_grid_power": power(precision=1, translation_key="grid_power"),
+    "unit_grid_power": power(precision=1, translation_key="grid_power", enabled=False),
     "pack_status": enum(options=PackStatus, entity_category=EntityCategory.DIAGNOSTIC),
     "system_role": enum(
         options=stream_ac_5000.SystemRole, entity_category=EntityCategory.DIAGNOSTIC
@@ -1013,6 +1013,10 @@ async def async_setup_entry(
     if new_sensors:
         async_add_entities(new_sensors)
 
+    if isinstance(device, Pack):
+        _track_pack_units(device, async_add_entities)
+        return
+
     if battery_entities := _get_extra_battery_entities(
         hass=hass,
         device=device,
@@ -1020,6 +1024,21 @@ async def async_setup_entry(
         config_entry_id=config_entry.entry_id,
     ):
         async_add_entities(battery_entities)
+
+
+def _track_pack_units(
+    pack: Pack, async_add_entities: AddConfigEntryEntitiesCallback
+) -> None:
+    def add_unit(unit: PackUnit) -> None:
+        async_add_entities(
+            _sensor_class(sensor)(unit, sensor)
+            for sensor in SENSOR_TYPES
+            if hasattr(unit, sensor)
+        )
+
+    for unit in pack.units.values():
+        add_unit(unit)
+    pack.on_new_unit = add_unit
 
 
 def _get_extra_battery_entities(

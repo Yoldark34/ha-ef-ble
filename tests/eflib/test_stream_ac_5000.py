@@ -56,6 +56,13 @@ def device(mocker: MockerFixture):
     return device
 
 
+@pytest.fixture
+def reports(device):
+    received = []
+    device.on_unit_report(received.append)
+    return received
+
+
 def _telemetry(payload_hex: str) -> Packet:
     return Packet(0x02, 0x21, 0xFE, 0x27, bytes.fromhex(payload_hex), 0x01, 0x01, 0x03)
 
@@ -69,27 +76,27 @@ async def test_stream_ac_5000_processes_all_payloads_successfully(
 
 
 async def test_stream_ac_5000_parses_battery_level_and_temperature(
-    device, payload_sequence
+    device, payload_sequence, reports
 ):
     processed = await device.data_parse(_telemetry(payload_sequence[1]))
 
     assert processed is True
-    assert device.battery_level_main == 19
+    assert reports[-1].soc == 19
     # the pack reports four temperatures; the hottest one is what gets exposed
     assert device.cell_temperature == 39
 
 
 async def test_stream_ac_5000_reports_battery_power_negative_while_discharging(
-    device, payload_sequence
+    device, payload_sequence, reports
 ):
     processed = await device.data_parse(_telemetry(payload_sequence[0]))
 
     assert processed is True
-    assert device.unit_battery_power == -300
-    assert device.unit_battery_ac_input_power == 0
-    assert device.unit_battery_ac_output_power == 300
+    own = next(report for report in reports if report.battery_power is not None)
+    assert own.battery_power == -300
+    assert own.grid_power == 300
     assert device.pack_load_from_battery == 300
-    assert device.backup_port_power == 0
+    assert own.backup_power == 0
 
 
 async def test_stream_ac_5000_reports_battery_power_positive_while_charging(
@@ -226,20 +233,6 @@ async def test_stream_ac_5000_reads_its_role_in_the_pack(device):
     assert device.pack_unit_count == 2
 
 
-async def test_stream_5000_reports_each_solar_input(mocker):
-    ble_dev = mocker.Mock()
-    ble_dev.address = "AA:BB:CC:DD:EE:FF"
-    device = stream_5000.Device(ble_dev, mocker.MagicMock(), "ES21XXXXXXXXX180")
-
-    # every capture so far is without sun, so the reading has to be built
-    message = es22_bkw_pb2.DisplayPropertyUpload()
-    message.dev_energy_stream_report.pv1_pwr = 321
-    message.dev_energy_stream_report.pv3_pwr = 45
-    device.update_from_message(message)
-
-    assert [device.pv_power[n] for n in range(1, 5)] == [321, 0, 45, 0]
-
-
 def _runtime_post(post: PacketV4, body: bytes) -> PacketV4:
     head = post.payload[:9] + post.payload[9:15] + b"\xfe\x28" + post.payload[17:22]
     return dataclasses.replace(post, payload=head + body)
@@ -290,13 +283,7 @@ async def test_stream_ac_5000_exact_values_from_known_packets(
 
     expected = {
         Device.pack_battery_level: 2,
-        Device.battery_level_main: 2,
-        Device.unit_battery_power: 1002,
-        Device.unit_battery_ac_input_power: 1002,
-        Device.unit_battery_ac_output_power: 0,
-        Device.unit_grid_power: -1002,
         Device.pack_house_grid_power: 1202,
-        Device.backup_port_power: 0,
         Device.pack_load_system: 200,
         Device.pack_load_from_battery: 0,
         Device.pack_load_from_grid: 200,

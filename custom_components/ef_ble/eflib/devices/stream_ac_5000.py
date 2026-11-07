@@ -1,3 +1,5 @@
+from collections.abc import Callable
+from dataclasses import dataclass
 from typing import ClassVar
 
 from bleak.backends.device import BLEDevice
@@ -17,7 +19,6 @@ from ..props import (
 )
 from ..props.enums import IntFieldValue
 from ..props.protobuf_field import TransformIfMissing
-from ..props.transforms import pnegative, ppositive
 from ..serial_routing import SerialRouting
 
 pb = proto_attr_mapper(es22_bkw_pb2.DisplayPropertyUpload)
@@ -38,6 +39,18 @@ pb_battery = proto_attr_mapper(es22_bkw_pb2.BatteryInfoItem)
 # The device leaves out a reading that is zero, even inside a block it does post, where
 # keeping the previous reading would hold on to a flow that has stopped
 ZERO_IF_OMITTED = TransformIfMissing[int, int](lambda value: value or 0)
+
+
+@dataclass(frozen=True, kw_only=True)
+class UnitReport:
+    """What a post says of one unit, which is not always the one that sent it"""
+
+    serial: str
+    soc: int | None = None
+    battery_power: int | None = None
+    grid_power: int | None = None
+    backup_power: int | None = None
+    pv_power: tuple[int, int, int, int] | None = None
 
 
 class SystemRole(IntFieldValue):
@@ -110,19 +123,6 @@ class Device(DeviceBase, ProtobufProps):
         pb_periods.property_upload_period.runtime_property_incremental_upload_period
     )
 
-    # This unit alone. Every unit posts `dev_energy_stream_report`, where only the master
-    # posts the `system_sub_dev_*` blocks that list each unit
-    battery_level_main = repeated_pb_field(
-        pb.battery_info_report.battery_info_item,
-        pb_battery.soc,
-        own_key=pb_battery.sn,
-    )
-    unit_battery_power = pb_field(pb.dev_energy_stream_report.bp_pwr, ZERO_IF_OMITTED)
-    unit_grid_power = pb_field(pb.dev_energy_stream_report.on_grid_pwr, ZERO_IF_OMITTED)
-    backup_port_power = pb_field(
-        pb.dev_energy_stream_report.backup_pwr, ZERO_IF_OMITTED
-    )
-
     remaining_time_charging = pb_field(pb.sys_battery_info_report.charge_remain_time)
     remaining_time_discharging = pb_field(
         pb.sys_battery_info_report.discharge_remain_time
@@ -149,6 +149,7 @@ class Device(DeviceBase, ProtobufProps):
             fallback_dst=self._SYSTEM_MODULE,
             sequenced_writes=True,
         )
+        self._unit_report_listeners: list[Callable[[UnitReport], None]] = []
 
     @classmethod
     def check(cls, sn):
@@ -165,14 +166,6 @@ class Device(DeviceBase, ProtobufProps):
             return str(self.system_group_id)
         return self.serial_number if self.pack_unit_count is not None else None
 
-    @computed_field
-    def unit_battery_ac_input_power(self) -> float | None:
-        return ppositive()(self.unit_battery_power)
-
-    @computed_field
-    def unit_battery_ac_output_power(self) -> float | None:
-        return pnegative()(self.unit_battery_power)
-
     async def packet_parse(self, data: bytes):
         return Packet.from_bytes(data, xor_payload=True)
 
@@ -187,7 +180,7 @@ class Device(DeviceBase, ProtobufProps):
             self._WRITE_CMD_SET,
             self._TELEMETRY_CMD_ID,
         ):
-            self.update_from_bytes(es22_bkw_pb2.DisplayPropertyUpload, packet.payload)
+            self._apply_telemetry(packet.payload)
             processed = True
 
         self._notify_updated()
@@ -210,8 +203,68 @@ class Device(DeviceBase, ProtobufProps):
             return False
 
         self._routing.remember_post(packet)
-        self.update_from_bytes(es22_bkw_pb2.DisplayPropertyUpload, body)
+        self._apply_telemetry(body)
         return True
+
+    def _apply_telemetry(self, body: bytes) -> None:
+        message = self.update_from_bytes(es22_bkw_pb2.DisplayPropertyUpload, body)
+        if message is not None:
+            self._publish_unit_reports(message)
+
+    def on_unit_report(
+        self, listener: Callable[[UnitReport], None]
+    ) -> Callable[[], None]:
+        """Listen to what posts say of each unit, and return how to stop"""
+        self._unit_report_listeners.append(listener)
+        return lambda: self._unit_report_listeners.remove(listener)
+
+    def _publish_unit_reports(
+        self, message: es22_bkw_pb2.DisplayPropertyUpload
+    ) -> None:
+        for report in self._unit_reports(message):
+            for listener in self._unit_report_listeners:
+                listener(report)
+
+    def _unit_reports(
+        self, message: es22_bkw_pb2.DisplayPropertyUpload
+    ) -> list[UnitReport]:
+        # A unit reports itself in `dev_energy_stream_report`, and the master also lists
+        # every unit in `system_sub_dev_energy_flow_detail`. Both leave out what is zero
+        reports = []
+        if message.HasField("dev_energy_stream_report"):
+            own = message.dev_energy_stream_report
+            reports.append(
+                UnitReport(
+                    serial=self.serial_number,
+                    battery_power=own.bp_pwr,
+                    grid_power=own.on_grid_pwr,
+                    backup_power=own.backup_pwr,
+                    pv_power=(own.pv1_pwr, own.pv2_pwr, own.pv3_pwr, own.pv4_pwr),
+                )
+            )
+        detail = message.system_sub_dev_energy_flow_detail
+        reports.extend(
+            UnitReport(
+                serial=unit.dev_sn,
+                soc=round(unit.dev_soc),
+                battery_power=round(unit.bp_pwr),
+                grid_power=round(unit.on_grid_pwr),
+                backup_power=round(unit.backup_pwr),
+                pv_power=(
+                    round(unit.pv_1_pwr),
+                    round(unit.pv_2_pwr),
+                    round(unit.pv_3_pwr),
+                    round(unit.pv_4_pwr),
+                ),
+            )
+            for unit in detail.dev_energy_flow_detail
+        )
+        reports.extend(
+            UnitReport(serial=battery.sn, soc=battery.soc)
+            for battery in message.battery_info_report.battery_info_item
+            if battery.sn
+        )
+        return reports
 
     async def _write_property(self, config: Message) -> None:
         # `action_id` selects which of the optional blocks the device applies, and is

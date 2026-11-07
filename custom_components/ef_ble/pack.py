@@ -9,10 +9,16 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 
-from .const import CONF_PACK_ID, CONF_PACK_SERIAL, CONF_PACK_UNITS, DOMAIN
+from .const import (
+    CONF_PACK_ID,
+    CONF_PACK_REPORT_INTERVAL,
+    CONF_PACK_SERIAL,
+    CONF_PACK_UNITS,
+    DOMAIN,
+)
 from .eflib import DeviceBase
 from .eflib.devices import stream_ac_5000
-from .eflib.pack import PACK_KEYS, Pack
+from .eflib.pack import DEFAULT_REPORT_INTERVAL, PACK_KEYS, Pack
 
 PACK_PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.NUMBER, Platform.SWITCH]
 
@@ -29,7 +35,10 @@ def is_pack_entry(entry: ConfigEntry) -> bool:
 
 def _pack(hass: HomeAssistant, pack_id: str) -> Pack:
     packs: dict[str, Pack] = hass.data.setdefault(_PACKS_KEY, {})
-    return packs.setdefault(pack_id, Pack(pack_id))
+    if pack_id not in packs:
+        packs[pack_id] = Pack(pack_id)
+        packs[pack_id].resolve_unit_address = lambda serial: _unit_address(hass, serial)
+    return packs[pack_id]
 
 
 def _first_unit_serial(hass: HomeAssistant, fallback: str) -> str:
@@ -153,6 +162,16 @@ def _async_remove_unit_duplicates(hass: HomeAssistant, pack: Pack) -> None:
             registry.async_remove(entity.entity_id)
 
 
+def _unit_address(hass: HomeAssistant, serial: str) -> str | None:
+    """The address a unit's device is registered under, for a unit not connected yet"""
+    for device in dr.async_get(hass).devices.values():
+        if device.serial_number == serial:
+            for domain, identifier in device.identifiers:
+                if domain == DOMAIN:
+                    return identifier
+    return None
+
+
 def _async_link_units(hass: HomeAssistant, pack: Pack) -> None:
     """Show the units under their pack, which also takes the area they are in"""
     registry = dr.async_get(hass)
@@ -175,6 +194,19 @@ def _async_link_units(hass: HomeAssistant, pack: Pack) -> None:
 async def async_setup_pack_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     pack = _pack(hass, entry.data[CONF_PACK_ID])
     pack.serial_number = entry.data[CONF_PACK_SERIAL]
+    pack.desired_report_interval = entry.data.get(
+        CONF_PACK_REPORT_INTERVAL, DEFAULT_REPORT_INTERVAL
+    )
+
+    @callback
+    def remember_report_interval(seconds: float) -> None:
+        hass.config_entries.async_update_entry(
+            entry, data={**entry.data, CONF_PACK_REPORT_INTERVAL: seconds}
+        )
+
+    pack.on_report_interval_chosen = remember_report_interval
+    for serial in entry.data.get(CONF_PACK_UNITS, []):
+        pack.known_unit(serial)
     entry.runtime_data = pack
     await hass.config_entries.async_forward_entry_setups(entry, PACK_PLATFORMS)
     _async_remove_unit_duplicates(hass, pack)
