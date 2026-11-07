@@ -3,6 +3,7 @@ import dataclasses
 import pytest
 from pytest_mock import MockerFixture
 
+from custom_components.ef_ble.eflib.devices import stream_5000
 from custom_components.ef_ble.eflib.devices.stream_ac_5000 import Device
 from custom_components.ef_ble.eflib.packet import Packet, PacketV4
 from custom_components.ef_ble.eflib.pb import es22_bkw_pb2
@@ -222,6 +223,33 @@ async def test_stream_ac_5000_write_carries_the_session_layer_of_the_post(
     await device.set_energy_backup_battery_level(60)
 
     assert device._conn.send_packet.await_args.args[0].cmd_flags == cmd_flags
+
+
+@pytest.mark.parametrize(
+    ("device_class", "serial", "claimed"),
+    [
+        (stream_5000.Device, b"ES21XXXXXXXXX180", True),
+        (stream_5000.Device, b"ES22XXXXXXXXX447", False),
+        (Device, b"ES21XXXXXXXXX180", False),
+        (Device, b"ES22XXXXXXXXX447", True),
+    ],
+)
+def test_stream_5000_models_each_claim_only_their_own_serial(
+    device_class, serial, claimed
+):
+    assert device_class.check(serial) is claimed
+
+
+async def test_stream_5000_reads_the_same_telemetry(mocker, idle_payload_sequence):
+    ble_dev = mocker.Mock()
+    ble_dev.address = "AA:BB:CC:DD:EE:FF"
+    device = stream_5000.Device(ble_dev, mocker.MagicMock(), "ES21XXXXXXXXX180")
+
+    await device.data_parse(_telemetry(idle_payload_sequence[2]))
+
+    assert device.device == "STREAM 5000"
+    assert device.battery_level == 58
+    assert device.house_grid_power == 887
 
 
 async def test_stream_ac_5000_reports_battery_capacity(device):
