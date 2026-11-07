@@ -407,6 +407,31 @@ async def test_pack_reads_and_sends_its_work_mode(pack, master, slave):
     assert command.work_mode == WorkMode.AI_MODE.value
 
 
+async def test_pack_shows_an_accepted_setting_before_the_next_report(limited_pack):
+    await limited_pack.set_feed_grid_pow_limit(600)
+
+    assert limited_pack.feed_grid_pow_limit == 600
+
+
+async def test_pack_keeps_the_old_value_of_a_setting_nobody_accepted(
+    limited_pack, master, slave
+):
+    master._conn.send_packet.side_effect = NotConnectedError("gone")
+    slave._conn.send_packet.side_effect = NotConnectedError("gone")
+
+    with pytest.raises(NotConnectedError):
+        await limited_pack.set_feed_grid_pow_limit(600)
+
+    assert limited_pack.feed_grid_pow_limit == 900
+
+
+async def test_standby_shows_its_zeros_at_once(limited_pack):
+    await limited_pack.enable_pack_standby(True)
+
+    assert limited_pack.feed_grid_pow_limit == 0
+    assert limited_pack.grid_in_power_limit == 0
+
+
 async def test_pack_command_fails_loudly_when_no_unit_answers(pack, master, slave):
     master._conn.send_packet.side_effect = NotConnectedError("gone")
     slave._conn.send_packet.side_effect = NotConnectedError("gone")

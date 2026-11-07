@@ -410,6 +410,14 @@ class Pack(_VirtualDevice):
         if pack_field in ("feed_grid_pow_limit", "grid_in_power_limit"):
             self._watch_standby()
 
+    def _show(self, pack_field: str, value: Any) -> None:
+        # A unit only echoes a setting in its next report, up to an interval later, so
+        # this shows what was just accepted, as the app does. Not through `_update`: it
+        # says nothing of what the units hold, which standby needs to tell apart
+        self.reset_updated()
+        setattr(self, pack_field, value)
+        self._notify_updated()
+
     def restore_standby(self, limits: StandbyLimits) -> None:
         """Pick up a standby from a previous run, already applied to the units"""
         self._standby_limits = limits
@@ -482,11 +490,13 @@ class Pack(_VirtualDevice):
     @controls.battery(battery_charge_limit_max, min=dynamic(battery_charge_limit_min))
     async def set_battery_charge_limit_max(self, limit: float):
         await self._command("set_battery_charge_limit_max", limit)
+        self._show("battery_charge_limit_max", int(limit))
         return True
 
     @controls.battery(battery_charge_limit_min, max=dynamic(battery_charge_limit_max))
     async def set_battery_charge_limit_min(self, limit: float):
         await self._command("set_battery_charge_limit_min", limit)
+        self._show("battery_charge_limit_min", int(limit))
         return True
 
     @controls.battery(
@@ -496,6 +506,7 @@ class Pack(_VirtualDevice):
     )
     async def set_energy_backup_battery_level(self, value: float):
         await self._command("set_energy_backup_battery_level", value)
+        self._show("energy_backup_battery_level", int(value))
         return True
 
     def _refuse_during_standby(self) -> None:
@@ -506,12 +517,14 @@ class Pack(_VirtualDevice):
     async def set_feed_grid_pow_limit(self, value: float):
         self._refuse_during_standby()
         await self._command("set_feed_grid_pow_limit", value)
+        self._show("feed_grid_pow_limit", int(value))
         return True
 
     @controls.power(grid_in_power_limit, max=_GRID_IN_POWER_MAX)
     async def set_grid_in_power_limit(self, value: float):
         self._refuse_during_standby()
         await self._command("set_grid_in_power_limit", value)
+        self._show("grid_in_power_limit", int(value))
         return True
 
     def _set_standby(self, limits: StandbyLimits | None) -> None:
@@ -524,7 +537,9 @@ class Pack(_VirtualDevice):
 
     async def _write_limits(self, feed: int, grid_in: int) -> None:
         await self._command("set_feed_grid_pow_limit", feed)
+        self._show("feed_grid_pow_limit", feed)
         await self._command("set_grid_in_power_limit", grid_in)
+        self._show("grid_in_power_limit", grid_in)
 
     # The two left out are not offered in the app's mode list, but stay readable
     @controls.select(
@@ -535,6 +550,7 @@ class Pack(_VirtualDevice):
     )
     async def set_work_mode(self, mode: WorkMode):
         await self._command("set_work_mode", mode)
+        self._show("work_mode", mode)
 
     @controls.switch(pack_standby)
     async def enable_pack_standby(self, enabled: bool):
@@ -598,8 +614,10 @@ class Pack(_VirtualDevice):
         self.on_report_interval_chosen(seconds)
         for member in members:
             await member.set_report_interval(seconds)
+        self._show("report_interval", seconds)
         return True
 
     @controls.switch(energy_backup)
     async def enable_energy_backup(self, enabled: bool):
         await self._command("enable_energy_backup", enabled)
+        self._show("energy_backup", enabled)
