@@ -186,6 +186,7 @@ async def test_stream_ac_5000_reads_the_stream_report_when_sub_dev_blocks_are_em
     assert device.battery_ac_input_power == 1
     assert device.battery_ac_output_power == 0
     assert device.grid_power == -1
+    assert device.house_grid_power == 935
     assert device.load_from_grid == 934
 
 
@@ -215,6 +216,7 @@ async def test_stream_ac_5000_exact_values_from_known_packets(
         Device.battery_ac_input_power: 1002.79,
         Device.battery_ac_output_power: 0.0,
         Device.grid_power: -1002.79,
+        Device.house_grid_power: 1202,
         Device.backup_port_power: None,
         Device.load_system: 200,
         Device.load_from_battery: 0,

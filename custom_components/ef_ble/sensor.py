@@ -502,6 +502,7 @@ _SENSORS: Final[dict[str, SensorEntityDescription]] = {
     "total_energy": energy(),
     # SHP2
     "grid_power": power(precision=1),
+    "house_grid_power": power(precision=0),
     "backup_port_power": power(precision=1),
     "power_status": enum(options=shp2.PowerStatus),
     "in_use_power": power(precision=2),

@@ -137,6 +137,9 @@
       "grid_power": {
         "default": "mdi:transmission-tower"
       },
+      "house_grid_power": {
+        "default": "mdi:transmission-tower-import"
+      },
       "backup_port_power": {
         "default": "mdi:power-plug-battery-outline"
       },

@@ -491,6 +491,9 @@
       "grid_power": {
         "name": "Grid Power"
       },
+      "house_grid_power": {
+        "name": "House Grid Power"
+      },
       "backup_port_power": {
         "name": "Backup Port Power"
       },
