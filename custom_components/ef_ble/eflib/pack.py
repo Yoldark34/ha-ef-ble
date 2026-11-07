@@ -11,6 +11,7 @@ from .entity import controls
 from .entity.base import dynamic
 from .exceptions import NotConnectedError
 from .props import Field, computed_field
+from .props.enums import IntFieldValue
 from .props.transforms import pnegative, ppositive
 from .props.updatable_props import UpdatableProps
 
@@ -50,6 +51,15 @@ PACK_KEYS = frozenset(
         "battery_ac_output_power",
     }
 )
+
+
+class PackStatus(IntFieldValue):
+    UNKNOWN = -1
+
+    OFFLINE = 0
+    WAITING = 1
+    DEGRADED = 2
+    READY = 3
 
 
 class Pack(UpdatableProps):
@@ -100,6 +110,20 @@ class Pack(UpdatableProps):
         return any(member.is_connected for member in self._members)
 
     @computed_field
+    def pack_status(self) -> PackStatus:
+        """What an automation can expect of the pack right now"""
+        connected = sum(member.is_connected for member in self._members)
+        if not connected:
+            return PackStatus.OFFLINE
+        # Nothing is known of the pack until a unit's first full report, a few minutes
+        # after it connects, and the controls need those values to know their limits
+        if self.energy_backup_battery_level is None:
+            return PackStatus.WAITING
+        if connected < (self.system_unit_count or 0):
+            return PackStatus.DEGRADED
+        return PackStatus.READY
+
+    @computed_field
     def battery_ac_input_power(self) -> float | None:
         return ppositive()(self.battery_power)
 
@@ -130,8 +154,12 @@ class Pack(UpdatableProps):
     def _publish_availability(self) -> None:
         # Entities read `is_connected` when they write their state, and nothing else
         # makes them write it when the last unit leaves
+        self.reset_updated()
+        self._notify_updated()
         for propname in list(self._state_callbacks):
             self.update_state(propname, getattr(self, propname))
+        for propname in list(self._callbacks_map):
+            self.update_callback(propname)
 
     def _update(self, pack_field: str, value: Any) -> None:
         if value is None:

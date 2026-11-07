@@ -1039,6 +1039,15 @@
       "battery_full_capacity": {
         "name": "Full Capacity"
       },
+      "pack_status": {
+        "name": "Pack Status",
+        "state": {
+          "offline": "Offline",
+          "waiting": "Waiting for first report",
+          "degraded": "Degraded",
+          "ready": "Ready"
+        }
+      },
       "system_role": {
         "name": "Pack Role",
         "state": {

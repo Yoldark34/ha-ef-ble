@@ -9,7 +9,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 
-from .const import CONF_PACK_ID, CONF_PACK_SERIAL, DOMAIN
+from .const import CONF_PACK_ID, CONF_PACK_SERIAL, CONF_PACK_UNITS, DOMAIN
 from .eflib import DeviceBase
 from .eflib.devices import stream_ac_5000
 from .eflib.pack import PACK_KEYS, Pack
@@ -75,32 +75,62 @@ async def _async_ensure_entry(hass: HomeAssistant, pack_id: str, serial: str) ->
     )
 
 
+def _known_pack_id(hass: HomeAssistant, serial: str) -> str | None:
+    for entry in hass.config_entries.async_entries(DOMAIN):
+        if is_pack_entry(entry) and serial in entry.data.get(CONF_PACK_UNITS, []):
+            return entry.data[CONF_PACK_ID]
+    return None
+
+
+def _async_remember_unit(hass: HomeAssistant, pack_id: str, serial: str) -> None:
+    for entry in hass.config_entries.async_entries(DOMAIN):
+        if not is_pack_entry(entry):
+            continue
+        units = set(entry.data.get(CONF_PACK_UNITS, []))
+        wanted = (
+            units | {serial}
+            if entry.data[CONF_PACK_ID] == pack_id
+            else units - {serial}
+        )
+        if wanted != units:
+            hass.config_entries.async_update_entry(
+                entry, data={**entry.data, CONF_PACK_UNITS: sorted(wanted)}
+            )
+
+
 def async_track_member(hass: HomeAssistant, device: DeviceBase) -> Callable[[], None]:
-    """Join a STREAM unit to its pack once it reports one, and return how to leave it"""
+    """Join a STREAM unit to its pack, and return how to leave it"""
     if not isinstance(device, stream_ac_5000.Device):
         return lambda: None
 
-    joined: list[Pack] = []
+    current: list[Pack] = []
+
+    def leave_pack() -> None:
+        while current:
+            current.pop().detach(device)
 
     @callback
     def join(pack_id: str | None) -> None:
-        if pack_id is None or joined:
+        if pack_id is None:
             return
         pack = _pack(hass, pack_id)
-        pack.attach(device)
-        joined.append(pack)
+        if current != [pack]:
+            leave_pack()
+            pack.attach(device)
+            current.append(pack)
+        _async_remember_unit(hass, pack_id, device.serial_number)
         _async_remove_unit_duplicates(hass, pack)
         _async_link_units(hass, pack)
         hass.async_create_task(_async_ensure_entry(hass, pack_id, device.serial_number))
 
     device.register_state_update_callback(join, "pack_id")
-    join(device.pack_id)
+    # A unit only reports its pack minutes after connecting, so a known one joins now
+    join(device.pack_id or _known_pack_id(hass, device.serial_number))
 
     @callback
     def leave() -> None:
         device.remove_state_update_callback(join, "pack_id")
-        for pack in joined:
-            pack.detach(device)
+        leave_pack()
 
     return leave
 

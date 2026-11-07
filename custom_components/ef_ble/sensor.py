@@ -46,6 +46,7 @@ from .eflib.devices import (
     wave3,
 )
 from .eflib.entity import units
+from .eflib.pack import PackStatus
 from .eflib.props.enums import IntFieldValue
 from .entity import (
     DeviceNamedEntity,
@@ -921,6 +922,7 @@ _SENSORS: Final[dict[str, SensorEntityDescription]] = {
         precision=1, translation_key="battery_ac_output_power"
     ),
     "unit_grid_power": power(precision=1, translation_key="grid_power"),
+    "pack_status": enum(options=PackStatus, entity_category=EntityCategory.DIAGNOSTIC),
     "system_role": enum(
         options=stream_ac_5000.SystemRole, entity_category=EntityCategory.DIAGNOSTIC
     ),
@@ -989,6 +991,8 @@ def _sensor_class(sensor: str) -> "type[EcoflowSensor]":
         isinstance(description, EcoflowSensorEntityDescription)
         and description.name_field is not None
     )
+    if sensor == "pack_status":
+        return EcoflowPackStatusSensor
     return EcoflowNamedSensor if has_device_name else EcoflowSensor
 
 
@@ -1133,6 +1137,14 @@ class EcoflowSensor(EcoflowEntity, SensorEntity):
             for field_name in self._attribute_fields
             if hasattr(self._device, field_name)
         }
+
+
+class EcoflowPackStatusSensor(EcoflowSensor):
+    """Stays available, as saying the pack is offline is what it is for"""
+
+    @property
+    def available(self) -> bool:
+        return True
 
 
 class EcoflowNamedSensor(DeviceNamedEntity, EcoflowSensor):

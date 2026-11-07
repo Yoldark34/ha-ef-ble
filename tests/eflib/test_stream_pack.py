@@ -4,13 +4,15 @@ from pytest_mock import MockerFixture
 
 from custom_components.ef_ble.eflib.devices import stream_5000, stream_ac_5000
 from custom_components.ef_ble.eflib.exceptions import NotConnectedError
-from custom_components.ef_ble.eflib.pack import Pack
+from custom_components.ef_ble.eflib.pack import Pack, PackStatus
 from custom_components.ef_ble.eflib.packet import Packet
 
 MASTER = "da01021001"
 SLAVE = "da01021002"
 # A captured post of the pack's totals, with the house at 887 W and the battery idle
 TOTALS = "5a0808ee0d10ee0d283a620330f706"
+# A two unit pack with its reserve on at 58 %
+FULL_REPORT = "da01022002f201040801103a"
 
 
 def _telemetry(payload_hex: str) -> Packet:
@@ -121,6 +123,32 @@ async def test_pack_ignores_the_totals_of_another_pack(mocker, pack):
     await other_unit.data_parse(_telemetry(TOTALS))
 
     assert pack.house_grid_power is None
+
+
+async def test_pack_is_waiting_until_a_unit_has_reported(pack):
+    assert pack.pack_status is PackStatus.WAITING
+
+
+async def test_pack_is_ready_once_every_unit_is_connected_and_reported(
+    pack, master, slave
+):
+    await master.data_parse(_telemetry(FULL_REPORT))
+
+    assert pack.pack_status is PackStatus.READY
+
+
+async def test_pack_is_degraded_when_a_unit_is_missing(pack, master, slave):
+    await master.data_parse(_telemetry(FULL_REPORT))
+    pack.detach(slave)
+
+    assert pack.pack_status is PackStatus.DEGRADED
+
+
+async def test_pack_is_offline_without_any_unit(pack, master, slave):
+    pack.detach(slave)
+    pack.detach(master)
+
+    assert pack.pack_status is PackStatus.OFFLINE
 
 
 async def test_pack_command_fails_loudly_when_no_unit_answers(pack, master, slave):

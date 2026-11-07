@@ -143,6 +143,9 @@
       "battery_full_capacity": {
         "default": "mdi:battery-high"
       },
+      "pack_status": {
+        "default": "mdi:battery-check"
+      },
       "system_role": {
         "default": "mdi:account-supervisor"
       },
