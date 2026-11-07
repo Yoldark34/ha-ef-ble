@@ -238,6 +238,9 @@
       },
       "state_of_health": {
         "default": "mdi:battery-heart"
+      },
+      "pack_grid_power": {
+        "default": "mdi:transmission-tower"
       }
     },
     "switch": {
@@ -375,6 +378,12 @@
         "state": {
           "off": "mdi:battery-off-outline"
         }
+      },
+      "pack_energy_backup": {
+        "default": "mdi:battery-sync",
+        "state": {
+          "off": "mdi:battery-sync-outline"
+        }
       }
     },
     "select": {
@@ -493,6 +502,21 @@
       },
       "discharging_power_limit": {
         "default": "mdi:battery-arrow-down"
+      },
+      "pack_battery_charge_limit_max": {
+        "default": "mdi:battery-arrow-up"
+      },
+      "pack_battery_charge_limit_min": {
+        "default": "mdi:battery-arrow-down-outline"
+      },
+      "pack_energy_backup_battery_level": {
+        "default": "mdi:battery-sync"
+      },
+      "pack_feed_grid_pow_limit": {
+        "default": "mdi:transmission-tower"
+      },
+      "pack_grid_in_power_limit": {
+        "default": "mdi:transmission-tower"
       }
     },
     "climate": {

@@ -1061,6 +1061,21 @@
       },
       "battery_remaining_energy": {
         "name": "Remaining Energy"
+      },
+      "pack_battery_level": {
+        "name": "Pack Battery Level"
+      },
+      "pack_battery_power": {
+        "name": "Pack Battery Power"
+      },
+      "pack_battery_ac_input_power": {
+        "name": "Pack AC Input Power"
+      },
+      "pack_battery_ac_output_power": {
+        "name": "Pack AC Output Power"
+      },
+      "pack_grid_power": {
+        "name": "Pack Grid Power"
       }
     },
     "select": {
@@ -1213,6 +1228,21 @@
       },
       "dc_charging_max_amps_2": {
         "name": "DC (2) Charging Max Amps"
+      },
+      "pack_battery_charge_limit_max": {
+        "name": "Pack Charge Limit"
+      },
+      "pack_battery_charge_limit_min": {
+        "name": "Pack Discharge Limit"
+      },
+      "pack_energy_backup_battery_level": {
+        "name": "Pack Backup Reserve"
+      },
+      "pack_feed_grid_pow_limit": {
+        "name": "Pack Max Output Power"
+      },
+      "pack_grid_in_power_limit": {
+        "name": "Pack Max Charging Power"
       }
     },
     "climate": {
@@ -1303,6 +1333,9 @@
       },
       "feed_protect": {
         "name": "Feed-in Control"
+      },
+      "pack_energy_backup": {
+        "name": "Pack Backup Reserve"
       }
     }
   },

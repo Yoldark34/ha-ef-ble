@@ -15,6 +15,23 @@ from .eflib.device_mappings import battery_name_from_device
 from .eflib.pack import Pack
 from .registry import async_get_device
 
+# Names these share with a single battery would read wrong on a pack
+_PACK_NAMED_KEYS = frozenset(
+    {
+        "battery_level",
+        "battery_power",
+        "battery_ac_input_power",
+        "battery_ac_output_power",
+        "grid_power",
+        "battery_charge_limit_max",
+        "battery_charge_limit_min",
+        "energy_backup_battery_level",
+        "feed_grid_pow_limit",
+        "grid_in_power_limit",
+        "energy_backup",
+    }
+)
+
 
 class EcoflowEntity(Entity):
     _attr_has_entity_name = True
@@ -23,6 +40,13 @@ class EcoflowEntity(Entity):
         self._device = device
         self._update_callbacks: list[tuple[str, Callable[[Any], None]]] = []
         self._write_state_props: list[str] = []
+
+    @property
+    def translation_key(self) -> str | None:
+        key = super().translation_key
+        if isinstance(self._device, Pack) and key in _PACK_NAMED_KEYS:
+            return f"pack_{key}"
+        return key
 
     @property
     def _integration_version(self) -> str:
