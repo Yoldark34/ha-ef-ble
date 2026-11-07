@@ -467,6 +467,9 @@
       "ac_5p8_charging_power": {
         "default": "mdi:lightning-bolt"
       },
+      "report_interval": {
+        "default": "mdi:timer-sync-outline"
+      },
       "feed_grid_pow_limit": {
         "default": "mdi:transmission-tower"
       },

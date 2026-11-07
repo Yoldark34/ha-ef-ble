@@ -240,6 +240,39 @@ async def test_stream_5000_reports_each_solar_input(mocker):
     assert [device.pv_power[n] for n in range(1, 5)] == [321, 0, 45, 0]
 
 
+def _runtime_post(post: PacketV4, body: bytes) -> PacketV4:
+    head = post.payload[:9] + post.payload[9:15] + b"\xfe\x28" + post.payload[17:22]
+    return dataclasses.replace(post, payload=head + body)
+
+
+async def test_stream_ac_5000_writes_the_report_interval_with_the_other_periods(
+    device, routed_frame
+):
+    periods = es22_bkw_pb2.PropertyUploadPeriod(
+        display_property_full_upload_period=120000,
+        display_property_incremental_upload_period=2000,
+        runtime_property_full_upload_period=300000,
+        runtime_property_incremental_upload_period=60000,
+    )
+    post = await device.packet_parse(bytes.fromhex(routed_frame))
+    await device.data_parse(post)
+    report = es22_bkw_pb2.PropertyCmd(property_upload_period=periods)
+    await device.data_parse(_runtime_post(post, report.SerializeToString()))
+    assert device.pack_report_interval == 120
+
+    await device.set_report_interval(30)
+
+    sent = device._conn.send_packet.await_args.args[0]
+    written = es22_bkw_pb2.PropertyCmd.FromString(sent.payload[38:])
+    assert written.property_upload_period.display_property_full_upload_period == 30000
+    assert written.property_upload_period.runtime_property_full_upload_period == 300000
+
+
+async def test_stream_ac_5000_refuses_a_report_interval_before_knowing_the_rest(device):
+    with pytest.raises(ValueError, match="not known yet"):
+        await device.set_report_interval(30)
+
+
 async def test_stream_ac_5000_reports_battery_capacity(device):
     # a unit at 58 %, which is what 2903 Wh of 5008 Wh comes to
     await device.data_parse(_telemetry("e20212083a1017180020902728d71630b22e38b32e"))

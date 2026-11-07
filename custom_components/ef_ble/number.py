@@ -10,6 +10,7 @@ from homeassistant.components.number import (
 from homeassistant.const import (
     PERCENTAGE,
     UnitOfMass,
+    UnitOfTime,
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -144,6 +145,11 @@ _BUILDERS: dict[type[controls.NumberType], _Builder] = {
         lambda number, builder: builder.device_class(
             NumberDeviceClass.TEMPERATURE
         ).native_unit_of_measurement(number.unit),
+    ),
+    controls.duration: _Builder[controls.duration](
+        lambda number, builder: builder.device_class(
+            NumberDeviceClass.DURATION
+        ).native_unit_of_measurement(UnitOfTime.SECONDS)
     ),
     controls.weight: _Builder[controls.weight](
         lambda number, builder: builder.device_class(

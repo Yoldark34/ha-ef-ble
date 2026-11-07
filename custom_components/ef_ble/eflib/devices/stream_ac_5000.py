@@ -21,6 +21,9 @@ from ..props.transforms import pnegative, ppositive
 from ..serial_routing import SerialRouting
 
 pb = proto_attr_mapper(es22_bkw_pb2.DisplayPropertyUpload)
+# The runtime report that carries the upload periods has no message of its own in the
+# schema, but keeps them at the field number `PropertyCmd` writes them to
+pb_periods = proto_attr_mapper(es22_bkw_pb2.PropertyCmd)
 
 # Which `PropertyCmd` field each configuration block occupies, keyed by the block's own
 # type so that a write names the block by class rather than by string
@@ -52,6 +55,7 @@ class Device(DeviceBase, ProtobufProps):
     NAME_PREFIX = "EF-6"
 
     _TELEMETRY_CMD_ID: ClassVar[int] = 0x27
+    _RUNTIME_CMD_ID: ClassVar[int] = 0x28
     _WRITE_CMD_SET: ClassVar[int] = 0xFE
     _WRITE_CMD_ID: ClassVar[int] = 0x26
     _SYSTEM_MODULE: ClassVar[int] = 0x02
@@ -90,6 +94,20 @@ class Device(DeviceBase, ProtobufProps):
     pack_feed_grid_pow_max = pb_field(pb.power_parameter_config.on_grid_feed_power_max)
     pack_grid_in_power_limit = pb_field(
         pb.power_parameter_config.on_grid_take_power_limit
+    )
+
+    pack_report_interval = pb_field(
+        pb_periods.property_upload_period.display_property_full_upload_period,
+        lambda milliseconds: milliseconds / 1000,
+    )
+    _display_incremental_period = pb_field(
+        pb_periods.property_upload_period.display_property_incremental_upload_period
+    )
+    _runtime_full_period = pb_field(
+        pb_periods.property_upload_period.runtime_property_full_upload_period
+    )
+    _runtime_incremental_period = pb_field(
+        pb_periods.property_upload_period.runtime_property_incremental_upload_period
     )
 
     # This unit alone. Every unit posts `dev_energy_stream_report`, where only the master
@@ -178,15 +196,20 @@ class Device(DeviceBase, ProtobufProps):
 
     def _parse_routed(self, packet: PacketV4) -> bool:
         envelope = SerialRouting.envelope(packet.payload)
-        if envelope is None or (envelope.src, envelope.cmd_set, envelope.cmd_id) != (
+        if envelope is None or (envelope.src, envelope.cmd_set) != (
             self._SYSTEM_MODULE,
             self._WRITE_CMD_SET,
-            self._TELEMETRY_CMD_ID,
         ):
             return False
 
-        self._routing.remember_post(packet)
         _, body = SerialRouting.split(packet.payload)
+        if envelope.cmd_id == self._RUNTIME_CMD_ID:
+            self.update_from_bytes(es22_bkw_pb2.PropertyCmd, body)
+            return True
+        if envelope.cmd_id != self._TELEMETRY_CMD_ID:
+            return False
+
+        self._routing.remember_post(packet)
         self.update_from_bytes(es22_bkw_pb2.DisplayPropertyUpload, body)
         return True
 
@@ -233,6 +256,26 @@ class Device(DeviceBase, ProtobufProps):
     async def set_grid_in_power_limit(self, value: float):
         await self._write_property(
             es22_bkw_pb2.BkwPowerParameterConfig(on_grid_take_power_limit=int(value))
+        )
+        return True
+
+    async def set_report_interval(self, seconds: float):
+        # The block is written whole, so the other periods have to go out as they are
+        others = (
+            self._display_incremental_period,
+            self._runtime_full_period,
+            self._runtime_incremental_period,
+        )
+        if None in others:
+            raise ValueError(f"{self.name}: upload periods are not known yet")
+
+        await self._write_property(
+            es22_bkw_pb2.PropertyUploadPeriod(
+                display_property_full_upload_period=int(seconds * 1000),
+                display_property_incremental_upload_period=others[0],
+                runtime_property_full_upload_period=others[1],
+                runtime_property_incremental_upload_period=others[2],
+            )
         )
         return True
 

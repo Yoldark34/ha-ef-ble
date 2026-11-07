@@ -38,6 +38,7 @@ _MEMBER_FIELDS = {
     "pack_feed_grid_pow_limit": "feed_grid_pow_limit",
     "pack_feed_grid_pow_max": "feed_grid_pow_max",
     "pack_grid_in_power_limit": "grid_in_power_limit",
+    "pack_report_interval": "report_interval",
 }
 
 # What the app reports as the pack's charging limit, with no higher value on offer
@@ -80,6 +81,7 @@ class Pack(UpdatableProps):
     feed_grid_pow_limit = Field[int]()
     feed_grid_pow_max = Field[int]()
     grid_in_power_limit = Field[int]()
+    report_interval = Field[float]()
 
     def __init__(self, pack_id: str, serial_number: str = "") -> None:
         super().__init__()
@@ -245,6 +247,16 @@ class Pack(UpdatableProps):
     @controls.power(grid_in_power_limit, max=_GRID_IN_POWER_MAX)
     async def set_grid_in_power_limit(self, value: float):
         await self._command("set_grid_in_power_limit", value)
+        return True
+
+    @controls.duration(report_interval, min=10, max=120, step=5)
+    async def set_report_interval(self, seconds: float):
+        # Each unit keeps its own, so unlike the pack's settings this goes to all of them
+        members = [member for member in self._members if member.is_connected]
+        if not members:
+            raise NotConnectedError("No unit of the pack can be reached")
+        for member in members:
+            await member.set_report_interval(seconds)
         return True
 
     @controls.switch(energy_backup)

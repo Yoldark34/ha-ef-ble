@@ -172,6 +172,10 @@ class weight(NumberType):
     pass
 
 
+class duration(NumberType):
+    pass
+
+
 @dataclasses.dataclass
 class option_set[E: IntFieldValue]:
     """

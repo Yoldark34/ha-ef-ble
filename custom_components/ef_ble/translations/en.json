@@ -1175,6 +1175,9 @@
       "ac_c20_charging_power": {
         "name": "AC C20 Charging Power"
       },
+      "report_interval": {
+        "name": "Report Interval"
+      },
       "feed_grid_pow_limit": {
         "name": "Feed Grid Power Limit"
       },
