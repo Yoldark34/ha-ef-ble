@@ -468,6 +468,45 @@ Click on any device below to see available sensors, switches, and controls:
 </details>
 
 <details>
+<summary><b>STREAM 5000</b> <i>(STREAM 5000, STREAM AC 5000)</i></summary>
+
+Linked batteries are shown as one `Pack Stream 5000` device, created automatically, with
+each battery under it. See the
+[wiki page](https://github.com/Yoldark34/ha-ef-ble/wiki/STREAM-5000-Pack).
+
+**Pack sensors**
+
+- Status (`ready`, `degraded`, `waiting`, `offline`)
+- Battery level
+- Battery power, AC input power, AC output power
+- Grid power, house grid power
+- System load, load from battery, load from grid
+- Units in the pack
+
+**Pack controls**
+
+- Backup reserve (on/off and level)
+- Charge limit, discharge limit
+- Max output power, max charging power
+- Report interval
+
+**Battery sensors**
+
+- Battery level, power, AC input power, AC output power
+- Grid port power (disabled by default), backup port power
+- Full capacity, remaining energy
+- Cell temperature (disabled by default)
+- Charge and discharge time remaining (disabled by default)
+- Role in the pack
+- Solar inputs 1 to 4 (STREAM 5000)
+
+**Battery controls**
+
+- AC ports
+
+</details>
+
+<details>
 <summary><b>STREAM Microinverter</b></summary>
 
 <br>
