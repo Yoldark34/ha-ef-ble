@@ -1038,6 +1038,17 @@
       "battery_full_capacity": {
         "name": "Full Capacity"
       },
+      "system_role": {
+        "name": "Pack Role",
+        "state": {
+          "election": "Election",
+          "master": "Master",
+          "slave": "Slave"
+        }
+      },
+      "system_unit_count": {
+        "name": "Pack Units"
+      },
       "battery_remaining_energy": {
         "name": "Remaining Energy"
       }

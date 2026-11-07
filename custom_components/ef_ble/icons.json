@@ -143,6 +143,12 @@
       "battery_full_capacity": {
         "default": "mdi:battery-high"
       },
+      "system_role": {
+        "default": "mdi:account-supervisor"
+      },
+      "system_unit_count": {
+        "default": "mdi:battery-sync"
+      },
       "battery_remaining_energy": {
         "default": "mdi:battery-50"
       },

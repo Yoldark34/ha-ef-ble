@@ -16,6 +16,7 @@ from ..props import (
     proto_attr_mapper,
     repeated_pb_field,
 )
+from ..props.enums import IntFieldValue
 from ..props.protobuf_field import TransformIfMissing
 from ..props.transforms import out_power, pnegative, ppositive, pround
 from ..serial_routing import SerialRouting
@@ -37,10 +38,21 @@ pb_system_battery = proto_attr_mapper(es22_bkw_pb2.SystemSubDevBatteryInfo)
 # The device leaves out a reading that is zero, even inside a block it does post, where
 # keeping the previous reading would hold on to a flow that has stopped
 _ZERO_IF_OMITTED = TransformIfMissing[int, int](lambda value: value or 0)
+_ROUNDED_OR_ZERO = TransformIfMissing[float, float](
+    lambda value: round(value, 2) if value is not None else 0.0
+)
 
 
 def _preferred[T](value: T | None, fallback: T | None) -> T | None:
     return value if value is not None else fallback
+
+
+class SystemRole(IntFieldValue):
+    UNKNOWN = -1
+
+    ELECTION = 0
+    MASTER = 1
+    SLAVE = 2
 
 
 class Device(DeviceBase, ProtobufProps):
@@ -52,18 +64,20 @@ class Device(DeviceBase, ProtobufProps):
     _TELEMETRY_CMD_ID: ClassVar[int] = 0x27
     _WRITE_CMD_SET: ClassVar[int] = 0xFE
     _WRITE_CMD_ID: ClassVar[int] = 0x26
-    _ACTION_CMD_ID: ClassVar[int] = 0x25
     _SYSTEM_MODULE: ClassVar[int] = 0x02
 
-    # `ActionCmd` ids are not the field numbers `PropertyCmd` uses, so this one is the
-    # app's own value for a once-off report of every property
-    _ACTION_FULL_UPLOAD: ClassVar[int] = 88
+    system_role = pb_field(
+        pb.system_config.distributed_device_role, SystemRole.from_value
+    )
+    system_unit_count = pb_field(pb.system_config.system_dev_cnt)
 
-    # Firmware 1.1.6.18 posts both `system_sub_dev_*` blocks empty, at least while the
-    # battery idles, so `sys_energy_stream_report` stands in for what they carry
+    # Each unit of a pack posts both `system_sub_dev_*` blocks with an entry per unit, and
+    # `sys_energy_stream_report` with the totals of the pack. A unit reads its own entry
+    # and falls back on those totals only while the blocks arrive empty
     _sub_dev_battery_level = repeated_pb_field(
         pb.system_sub_dev_battery_report.system_sub_dev_battery_info,
         pb_system_battery.soc,
+        own_key=pb_system_battery.sn,
     )
     _stream_battery_level = pb_field(pb.sys_energy_stream_report.bp_soc)
     _stream_battery_power = pb_field(
@@ -73,7 +87,9 @@ class Device(DeviceBase, ProtobufProps):
         pb.sys_energy_stream_report.on_grid_pwr, _ZERO_IF_OMITTED
     )
     battery_level_main = repeated_pb_field(
-        pb.battery_info_report.battery_info_item, pb_battery.soc
+        pb.battery_info_report.battery_info_item,
+        pb_battery.soc,
+        own_key=pb_battery.sn,
     )
 
     load_system = pb_field(pb.sys_energy_stream_report.load_pwr)
@@ -90,20 +106,25 @@ class Device(DeviceBase, ProtobufProps):
         TransformIfMissing[float, float](
             lambda value: out_power(value) if value is not None else 0.0
         ),
+        own_key=pb_flow.dev_sn,
     )
     _sub_dev_battery_ac_power = repeated_pb_field(
         pb.system_sub_dev_energy_flow_detail.dev_energy_flow_detail,
         pb_flow.bp_pwr,
+        _ROUNDED_OR_ZERO,
+        own_key=pb_flow.dev_sn,
     )
     _sub_dev_grid_power = repeated_pb_field(
         pb.system_sub_dev_energy_flow_detail.dev_energy_flow_detail,
         pb_flow.on_grid_pwr,
-        pround(2),
+        _ROUNDED_OR_ZERO,
+        own_key=pb_flow.dev_sn,
     )
     _backup_pwr = repeated_pb_field(
         pb.system_sub_dev_energy_flow_detail.dev_energy_flow_detail,
         pb_flow.backup_pwr,
         pround(2),
+        own_key=pb_flow.dev_sn,
     )
     # No capture carries either of these yet, so reading their absence as zero assumes
     # they follow the other flows of this block
@@ -132,7 +153,9 @@ class Device(DeviceBase, ProtobufProps):
     ac_ports = pb_field(pb.dev_switch.ac_socket_onoff)
 
     cell_temperature = repeated_pb_field(
-        pb.battery_info_report.battery_info_item, pb_battery.cell_max_temp
+        pb.battery_info_report.battery_info_item,
+        pb_battery.cell_max_temp,
+        own_key=pb_battery.sn,
     )
 
     def __init__(
@@ -147,7 +170,6 @@ class Device(DeviceBase, ProtobufProps):
             fallback_dst=self._SYSTEM_MODULE,
             sequenced_writes=True,
         )
-        self._full_upload_requested = False
 
     @classmethod
     def check(cls, sn):
@@ -194,9 +216,6 @@ class Device(DeviceBase, ProtobufProps):
 
         if isinstance(packet, PacketV4):
             processed = self._parse_routed(packet)
-            if processed and not self._full_upload_requested:
-                self._full_upload_requested = True
-                await self._request_full_upload()
         elif (packet.src, packet.cmd_set, packet.cmd_id) == (
             self._SYSTEM_MODULE,
             self._WRITE_CMD_SET,
@@ -222,23 +241,6 @@ class Device(DeviceBase, ProtobufProps):
         _, body = SerialRouting.split(packet.payload)
         self.update_from_bytes(es22_bkw_pb2.DisplayPropertyUpload, body)
         return True
-
-    async def _request_full_upload(self) -> None:
-        """
-        Ask the device to post every property once
-
-        The request changes no setting, and the device answers it with a report that is
-        larger than the incremental ones it sends unprompted, so it says whether a frame
-        we build is accepted at all - the one thing no control can tell us, since a
-        control that is ignored looks exactly like a control the device refuses
-        """
-        message = es22_bkw_pb2.ActionCmd(
-            action_id=self._ACTION_FULL_UPLOAD, active_display_property_full_upload=True
-        )
-        packet = self._routing.write_packet(
-            message.SerializeToString(), cmd_id=self._ACTION_CMD_ID
-        )
-        await self.send_packet(packet)
 
     async def _write_property(self, config: Message) -> None:
         # `action_id` selects which of the optional blocks the device applies, and is

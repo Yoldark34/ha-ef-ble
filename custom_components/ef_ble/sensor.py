@@ -40,6 +40,7 @@ from .eflib.devices import (
     shp2,
     shp3,
     smart_generator,
+    stream_ac_5000,
     stream_microinverter,
     wave2,
     wave3,
@@ -912,6 +913,14 @@ _SENSORS: Final[dict[str, SensorEntityDescription]] = {
     "battery_power": power(precision=1),
     "battery_ac_input_power": power(precision=1),
     "battery_ac_output_power": power(precision=1),
+    "system_role": enum(
+        options=stream_ac_5000.SystemRole, entity_category=EntityCategory.DIAGNOSTIC
+    ),
+    "system_unit_count": EcoflowSensorEntityDescription(
+        key="system_unit_count",
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
     "battery_full_capacity": energy_storage(),
     "battery_remaining_energy": energy_storage(),
     "inverter_temperature": temperature(),

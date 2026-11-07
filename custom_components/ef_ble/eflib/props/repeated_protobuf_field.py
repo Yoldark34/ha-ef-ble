@@ -162,6 +162,8 @@ def repeated_pb_field[T_ITEM, T_ATTR](
     list_field: Sequence[T_ITEM],
     item_attr: T_ATTR,
     transform: None = None,
+    *,
+    own_key: Any = None,
 ) -> ProtobufCompositeRepeatedField[T_ITEM, T_ATTR]: ...
 
 
@@ -170,6 +172,8 @@ def repeated_pb_field[T_ITEM, T_ATTR, T_OUT](
     list_field: Sequence[T_ITEM],
     item_attr: T_ATTR,
     transform: Callable[[T_ATTR], T_OUT],
+    *,
+    own_key: Any = None,
 ) -> ProtobufCompositeRepeatedField[T_ITEM, T_OUT]: ...
 
 
@@ -177,6 +181,8 @@ def repeated_pb_field(
     list_field: Sequence[Any],
     item_attr: Any,
     transform: Callable[[Any], Any] | None = None,
+    *,
+    own_key: Any = None,
 ) -> ProtobufCompositeRepeatedField[Any, Any]:
     """
     Create a field reading one attribute out of a repeated protobuf message
@@ -196,13 +202,27 @@ def repeated_pb_field(
         Function applied to the raw value. Wrap it in `TransformIfMissing` to have it
         called with `None` for an item that omits the attribute, which is how a
         measurement reports its off value instead of holding the last one
+    own_key, optional
+        Accessor for the attribute holding an item's serial number, for a list carrying
+        an entry per unit of a linked system: only the device's own item is then read,
+        rather than the first one that reports the attribute
     """
     apply = transform if transform is not None else lambda value: value
     process_if_missing = isinstance(transform, TransformIfMissing)
     attr_name = proto_attr_name(item_attr)
+    key_name = None if own_key is None else proto_attr_name(own_key)
 
     class _RepeatedItemField(ProtobufCompositeRepeatedField[Any, Any]):
         pb_field = list_field
+
+        def __set__(self, instance: "ProtobufProps", value: Sequence[Any]):
+            if key_name is not None:
+                value = [
+                    item
+                    for item in value
+                    if getattr(item, key_name) == instance.serial_number
+                ]
+            super().__set__(instance, value)
 
         def get_value(self, item: Message) -> Any:
             if not proto_has_attr(item, item_attr):

@@ -4,7 +4,7 @@ import pytest
 from pytest_mock import MockerFixture
 
 from custom_components.ef_ble.eflib.devices import stream_5000
-from custom_components.ef_ble.eflib.devices.stream_ac_5000 import Device
+from custom_components.ef_ble.eflib.devices.stream_ac_5000 import Device, SystemRole
 from custom_components.ef_ble.eflib.packet import Packet, PacketV4
 from custom_components.ef_ble.eflib.pb import es22_bkw_pb2
 from custom_components.ef_ble.eflib.serial_routing import SerialRouting
@@ -108,7 +108,7 @@ async def test_stream_ac_5000_prefers_the_power_block_for_backup_port_power(devi
     # no capture carries `backup_pwr`, so only a built message reaches this branch
     message = es22_bkw_pb2.DisplayPropertyUpload()
     message.system_sub_dev_energy_flow_detail.dev_energy_flow_detail.add(
-        backup_pwr=431.47
+        dev_sn=device.serial_number, backup_pwr=431.47
     )
     message.energy_flow_from_to_detail.bp_to_load = 1212
 
@@ -164,13 +164,13 @@ async def test_stream_ac_5000_zeroes_battery_power_when_the_entry_omits_it(devic
     # every captured entry reports `inv_pwr`, so the omission has to be built
     reported = es22_bkw_pb2.DisplayPropertyUpload()
     reported.system_sub_dev_energy_flow_detail.dev_energy_flow_detail.add(
-        inv_pwr=-311.43
+        dev_sn=device.serial_number, inv_pwr=-311.43
     )
     device.update_from_message(reported)
 
     omitted = es22_bkw_pb2.DisplayPropertyUpload()
     omitted.system_sub_dev_energy_flow_detail.dev_energy_flow_detail.add(
-        on_grid_pwr=10.0
+        dev_sn=device.serial_number, on_grid_pwr=10.0
     )
     device.update_from_message(omitted)
 
@@ -250,6 +250,39 @@ async def test_stream_5000_reads_the_same_telemetry(mocker, idle_payload_sequenc
     assert device.device == "STREAM 5000"
     assert device.battery_level == 58
     assert device.house_grid_power == 887
+
+
+@pytest.mark.parametrize("own_first", [True, False])
+async def test_stream_ac_5000_reads_only_its_own_entry_of_a_pack(device, own_first):
+    # the shape of a real pack post: the other unit working, this one idle
+    entries = [
+        {"dev_sn": device.serial_number, "dev_soc": 59.0, "on_grid_state": 2},
+        {
+            "dev_sn": "ES21XXXXXXXXX180",
+            "dev_soc": 58.0,
+            "bp_pwr": -106.0,
+            "inv_pwr": 112.0,
+            "on_grid_pwr": 106.0,
+        },
+    ]
+    message = es22_bkw_pb2.DisplayPropertyUpload()
+    for entry in entries if own_first else reversed(entries):
+        message.system_sub_dev_energy_flow_detail.dev_energy_flow_detail.add(**entry)
+
+    device.update_from_message(message)
+
+    assert device.battery_power == 0.0
+    assert device.battery_ac_output_power == 0.0
+    assert device.grid_power == 0.0
+
+
+async def test_stream_ac_5000_reads_its_role_in_the_pack(device):
+    # role and unit count, as they arrive in two separate posts
+    await device.data_parse(_telemetry("da010410021801"))
+    await device.data_parse(_telemetry("da01022002"))
+
+    assert device.system_role == SystemRole.SLAVE
+    assert device.system_unit_count == 2
 
 
 async def test_stream_ac_5000_reports_battery_capacity(device):
