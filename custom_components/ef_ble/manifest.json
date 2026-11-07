@@ -229,13 +229,13 @@
         }
     ],
 
-    "codeowners": ["@rabits"],
+    "codeowners": ["@Yoldark34"],
     "config_flow": true,
     "dependencies": ["bluetooth_adapters"],
-    "documentation": "https://github.com/rabits/ha-ef-ble/wiki",
+    "documentation": "https://github.com/Yoldark34/ha-ef-ble",
     "integration_type": "device",
     "iot_class": "local_push",
-    "issue_tracker": "https://github.com/rabits/ha-ef-ble/issues",
+    "issue_tracker": "https://github.com/Yoldark34/ha-ef-ble/issues",
     "loggers": ["custom_components.ef_ble"],
 
     "requirements": [
@@ -244,5 +244,5 @@
         "protobuf>=6.30"
     ],
 
-    "version": "1.4.0"
+    "version": "1.4.1"
 }
