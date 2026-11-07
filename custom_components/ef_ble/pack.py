@@ -6,6 +6,7 @@ from collections.abc import Callable
 from homeassistant.config_entries import SOURCE_INTEGRATION_DISCOVERY, ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 
 from .const import CONF_PACK_ID, CONF_PACK_SERIAL, DOMAIN
@@ -89,6 +90,7 @@ def async_track_member(hass: HomeAssistant, device: DeviceBase) -> Callable[[], 
         pack.attach(device)
         joined.append(pack)
         _async_remove_unit_duplicates(hass, pack)
+        _async_link_units(hass, pack)
         hass.async_create_task(_async_ensure_entry(hass, pack_id, device.serial_number))
 
     device.register_state_update_callback(join, "pack_id")
@@ -121,10 +123,30 @@ def _async_remove_unit_duplicates(hass: HomeAssistant, pack: Pack) -> None:
             registry.async_remove(entity.entity_id)
 
 
+def _async_link_units(hass: HomeAssistant, pack: Pack) -> None:
+    """Show the units under their pack, which also takes the area they are in"""
+    registry = dr.async_get(hass)
+    pack_device = registry.async_get_device(identifiers={(DOMAIN, pack.address)})
+    if pack_device is None:
+        return
+
+    for member in pack.members:
+        unit = registry.async_get_device(identifiers={(DOMAIN, member.address)})
+        if unit is None:
+            continue
+        if unit.via_device_id != pack_device.id:
+            registry.async_update_device(unit.id, via_device_id=pack_device.id)
+        if pack_device.area_id is None and unit.area_id is not None:
+            pack_device = registry.async_update_device(
+                pack_device.id, area_id=unit.area_id
+            )
+
+
 async def async_setup_pack_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     pack = _pack(hass, entry.data[CONF_PACK_ID])
     pack.serial_number = entry.data[CONF_PACK_SERIAL]
     entry.runtime_data = pack
     await hass.config_entries.async_forward_entry_setups(entry, PACK_PLATFORMS)
     _async_remove_unit_duplicates(hass, pack)
+    _async_link_units(hass, pack)
     return True
