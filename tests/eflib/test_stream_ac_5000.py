@@ -285,6 +285,20 @@ async def test_stream_ac_5000_reads_its_role_in_the_pack(device):
     assert device.system_unit_count == 2
 
 
+async def test_stream_5000_reports_each_solar_input(mocker):
+    ble_dev = mocker.Mock()
+    ble_dev.address = "AA:BB:CC:DD:EE:FF"
+    device = stream_5000.Device(ble_dev, mocker.MagicMock(), "ES21XXXXXXXXX180")
+
+    # every capture so far is without sun, so the reading has to be built
+    message = es22_bkw_pb2.DisplayPropertyUpload()
+    message.dev_energy_stream_report.pv1_pwr = 321
+    message.dev_energy_stream_report.pv3_pwr = 45
+    device.update_from_message(message)
+
+    assert [device.pv_power[n] for n in range(1, 5)] == [321, 0, 45, 0]
+
+
 async def test_stream_ac_5000_reports_battery_capacity(device):
     # a unit at 58 %, which is what 2903 Wh of 5008 Wh comes to
     await device.data_parse(_telemetry("e20212083a1017180020902728d71630b22e38b32e"))

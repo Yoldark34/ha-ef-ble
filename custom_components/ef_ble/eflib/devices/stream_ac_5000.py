@@ -37,7 +37,7 @@ pb_system_battery = proto_attr_mapper(es22_bkw_pb2.SystemSubDevBatteryInfo)
 
 # The device leaves out a reading that is zero, even inside a block it does post, where
 # keeping the previous reading would hold on to a flow that has stopped
-_ZERO_IF_OMITTED = TransformIfMissing[int, int](lambda value: value or 0)
+ZERO_IF_OMITTED = TransformIfMissing[int, int](lambda value: value or 0)
 _ROUNDED_OR_ZERO = TransformIfMissing[float, float](
     lambda value: round(value, 2) if value is not None else 0.0
 )
@@ -81,10 +81,10 @@ class Device(DeviceBase, ProtobufProps):
     )
     _stream_battery_level = pb_field(pb.sys_energy_stream_report.bp_soc)
     _stream_battery_power = pb_field(
-        pb.sys_energy_stream_report.bp_pwr, _ZERO_IF_OMITTED
+        pb.sys_energy_stream_report.bp_pwr, ZERO_IF_OMITTED
     )
     _stream_grid_power = pb_field(
-        pb.sys_energy_stream_report.on_grid_pwr, _ZERO_IF_OMITTED
+        pb.sys_energy_stream_report.on_grid_pwr, ZERO_IF_OMITTED
     )
     battery_level_main = repeated_pb_field(
         pb.battery_info_report.battery_info_item,
@@ -129,21 +129,21 @@ class Device(DeviceBase, ProtobufProps):
     # No capture carries either of these yet, so reading their absence as zero assumes
     # they follow the other flows of this block
     _bp_to_backup = pb_field(
-        pb.energy_flow_from_to_detail.bp_to_backup, _ZERO_IF_OMITTED
+        pb.energy_flow_from_to_detail.bp_to_backup, ZERO_IF_OMITTED
     )
     _grid_to_backup = pb_field(
-        pb.energy_flow_from_to_detail.grid_to_backup, _ZERO_IF_OMITTED
+        pb.energy_flow_from_to_detail.grid_to_backup, ZERO_IF_OMITTED
     )
 
     # What the whole house draws from the grid, where `grid_power` is the unit's own
     # grid port: a unit charging at 1002 W under a 200 W load reports 1202 and -1002
-    house_grid_power = pb_field(pb.sys_energy_stream_report.grid_pwr, _ZERO_IF_OMITTED)
+    house_grid_power = pb_field(pb.sys_energy_stream_report.grid_pwr, ZERO_IF_OMITTED)
 
     load_from_battery = pb_field(
-        pb.energy_flow_from_to_detail.bp_to_load, _ZERO_IF_OMITTED
+        pb.energy_flow_from_to_detail.bp_to_load, ZERO_IF_OMITTED
     )
     load_from_grid = pb_field(
-        pb.energy_flow_from_to_detail.grid_to_load, _ZERO_IF_OMITTED
+        pb.energy_flow_from_to_detail.grid_to_load, ZERO_IF_OMITTED
     )
 
     battery_charge_limit_max = pb_field(pb.bp_soc_config.charge_soc_upper_limit)
