@@ -436,6 +436,9 @@ class Pack(_VirtualDevice):
         if self._standby_limits is None:
             return
         limits = (self.feed_grid_pow_limit, self.grid_in_power_limit)
+        # After a restart the two arrive one at a time, and an unknown one says nothing
+        if None in limits:
+            return
         if not self._standby_confirmed:
             # The units take a report to echo the zeros, so what came before them says
             # nothing about what anyone else did

@@ -385,6 +385,17 @@ async def test_standby_keeps_the_first_error_when_the_limits_can_not_go_back(
     assert limited_pack.pack_standby is False
 
 
+async def test_standby_survives_the_first_report_after_a_restart(pack, master):
+    # right after a restart neither limit is known, and they arrive one after the other
+    pack.restore_standby(StandbyLimits(900, 3000))
+
+    await master.data_parse(_telemetry(_limits(0, 0)))
+
+    assert pack.pack_standby is True
+    assert not pack._tasks
+    master._conn.send_packet.assert_not_awaited()
+
+
 async def test_standby_survives_a_restart(limited_pack, master):
     limited_pack.restore_standby(StandbyLimits(900, 3000))
 
