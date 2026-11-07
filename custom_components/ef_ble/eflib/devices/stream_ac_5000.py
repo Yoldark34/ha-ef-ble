@@ -105,8 +105,14 @@ class Device(DeviceBase, ProtobufProps):
         pb_flow.backup_pwr,
         pround(2),
     )
-    _bp_to_backup = pb_field(pb.energy_flow_from_to_detail.bp_to_backup)
-    _grid_to_backup = pb_field(pb.energy_flow_from_to_detail.grid_to_backup)
+    # No capture carries either of these yet, so reading their absence as zero assumes
+    # they follow the other flows of this block
+    _bp_to_backup = pb_field(
+        pb.energy_flow_from_to_detail.bp_to_backup, _ZERO_IF_OMITTED
+    )
+    _grid_to_backup = pb_field(
+        pb.energy_flow_from_to_detail.grid_to_backup, _ZERO_IF_OMITTED
+    )
 
     # What the whole house draws from the grid, where `grid_power` is the unit's own
     # grid port: a unit charging at 1002 W under a 200 W load reports 1202 and -1002

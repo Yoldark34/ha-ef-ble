@@ -86,7 +86,7 @@ async def test_stream_ac_5000_reports_battery_power_negative_while_discharging(
     assert device.battery_ac_input_power == 0.0
     assert device.battery_ac_output_power == pytest.approx(300.32)
     assert device.load_from_battery == 300
-    assert device.backup_port_power is None
+    assert device.backup_port_power == 0
 
 
 async def test_stream_ac_5000_reports_battery_power_positive_while_charging(
@@ -225,7 +225,7 @@ async def test_stream_ac_5000_exact_values_from_known_packets(
         Device.battery_ac_output_power: 0.0,
         Device.grid_power: -1002.79,
         Device.house_grid_power: 1202,
-        Device.backup_port_power: None,
+        Device.backup_port_power: 0,
         Device.load_system: 200,
         Device.load_from_battery: 0,
         Device.load_from_grid: 200,
