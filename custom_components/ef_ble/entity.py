@@ -62,6 +62,7 @@ class EcoflowEntity(Entity):
                 name=self._device.name,
                 manufacturer=self._manufacturer,
                 model=self._device.device,
+                sw_version=None,
             )
 
         if isinstance(self._device, PackUnit):
@@ -76,6 +77,9 @@ class EcoflowEntity(Entity):
                 manufacturer=self._manufacturer,
                 model=self._device.device,
                 serial_number=self._device.serial_number,
+                # Nothing a unit posts carries its firmware. Stated, as leaving it out
+                # would keep what an earlier version stored here
+                sw_version=None,
                 via_device=(DOMAIN, self._device.pack_address),
             )
 
