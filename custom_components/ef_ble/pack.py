@@ -185,6 +185,11 @@ def _async_link_units(hass: HomeAssistant, pack: Pack) -> None:
             continue
         if unit.via_device_id != pack_device.id:
             registry.async_update_device(unit.id, via_device_id=pack_device.id)
+        # The unit now lives under the pack, and its own entry only holds the connection.
+        # A device needs an entry, so leave only once the pack's is on it
+        if pack_device.config_entries & unit.config_entries:
+            for entry_id in unit.config_entries - pack_device.config_entries:
+                registry.async_update_device(unit.id, remove_config_entry_id=entry_id)
         if pack_device.area_id is None and unit.area_id is not None:
             pack_device = registry.async_update_device(
                 pack_device.id, area_id=unit.area_id
@@ -208,6 +213,8 @@ async def async_setup_pack_entry(hass: HomeAssistant, entry: ConfigEntry) -> boo
     for serial in entry.data.get(CONF_PACK_UNITS, []):
         pack.known_unit(serial)
     entry.runtime_data = pack
+    # The pack outlives a reload of its entry, whose platforms register these again
+    pack.new_unit_listeners.clear()
     await hass.config_entries.async_forward_entry_setups(entry, PACK_PLATFORMS)
     _async_remove_unit_duplicates(hass, pack)
     _async_link_units(hass, pack)

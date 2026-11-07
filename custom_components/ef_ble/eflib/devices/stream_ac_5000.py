@@ -7,7 +7,6 @@ from bleak.backends.scanner import AdvertisementData
 from google.protobuf.message import Message
 
 from ..devicebase import DeviceBase
-from ..entity import controls
 from ..packet import Packet, PacketV4
 from ..pb import es22_bkw_pb2
 from ..props import (
@@ -73,7 +72,9 @@ class Device(DeviceBase, ProtobufProps):
     _WRITE_CMD_ID: ClassVar[int] = 0x26
     _SYSTEM_MODULE: ClassVar[int] = 0x02
 
-    system_role = pb_field(
+    # The `own_` fields are this unit's alone and the master does not relay them, so
+    # they need this unit's link. `eflib.pack.PackUnit` reads them and owns their entities
+    own_system_role = pb_field(
         pb.system_config.distributed_device_role, SystemRole.from_value
     )
     system_group_id = pb_field(pb.system_config.system_group_id)
@@ -123,15 +124,17 @@ class Device(DeviceBase, ProtobufProps):
         pb_periods.property_upload_period.runtime_property_incremental_upload_period
     )
 
-    remaining_time_charging = pb_field(pb.sys_battery_info_report.charge_remain_time)
-    remaining_time_discharging = pb_field(
+    own_remaining_time_charging = pb_field(
+        pb.sys_battery_info_report.charge_remain_time
+    )
+    own_remaining_time_discharging = pb_field(
         pb.sys_battery_info_report.discharge_remain_time
     )
-    battery_full_capacity = pb_field(pb.sys_battery_info_report.full_cap)
-    battery_remaining_energy = pb_field(pb.sys_battery_info_report.remain_cap)
-    ac_ports = pb_field(pb.dev_switch.ac_socket_onoff)
+    own_battery_full_capacity = pb_field(pb.sys_battery_info_report.full_cap)
+    own_battery_remaining_energy = pb_field(pb.sys_battery_info_report.remain_cap)
+    own_ac_ports = pb_field(pb.dev_switch.ac_socket_onoff)
 
-    cell_temperature = repeated_pb_field(
+    own_cell_temperature = repeated_pb_field(
         pb.battery_info_report.battery_info_item,
         pb_battery.cell_max_temp,
         own_key=pb_battery.sn,
@@ -157,7 +160,7 @@ class Device(DeviceBase, ProtobufProps):
 
     @property
     def is_master(self) -> bool:
-        return self.system_role is SystemRole.MASTER
+        return self.own_system_role is SystemRole.MASTER
 
     @computed_field
     def pack_id(self) -> str | None:
@@ -337,6 +340,5 @@ class Device(DeviceBase, ProtobufProps):
             es22_bkw_pb2.BpBackupConfig(backup_soc_on_off=enabled)
         )
 
-    @controls.outlet(ac_ports)
     async def enable_ac_ports(self, enabled: bool):
         await self._write_property(es22_bkw_pb2.DevSwitch(ac_socket_onoff=enabled))

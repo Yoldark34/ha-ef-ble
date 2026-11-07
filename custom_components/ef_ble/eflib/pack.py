@@ -47,6 +47,17 @@ _MEMBER_FIELDS = {
 _GRID_IN_POWER_MAX = 3000
 DEFAULT_REPORT_INTERVAL = 30
 
+# Which member field feeds which field of its unit, for what only the unit's link carries
+_MEMBER_UNIT_FIELDS = {
+    "own_remaining_time_charging": "remaining_time_charging",
+    "own_remaining_time_discharging": "remaining_time_discharging",
+    "own_battery_full_capacity": "battery_full_capacity",
+    "own_battery_remaining_energy": "battery_remaining_energy",
+    "own_ac_ports": "ac_ports",
+    "own_cell_temperature": "cell_temperature",
+    "own_system_role": "system_role",
+}
+
 # Keys the pack owns, so a member must not keep an entity of its own for them
 PACK_KEYS = frozenset(
     {
@@ -126,12 +137,23 @@ class PackUnit(_VirtualDevice):
     unit_battery_power = Field[int]()
     unit_grid_power = Field[int]()
     backup_port_power = Field[int]()
+    remaining_time_charging = Field[int]()
+    remaining_time_discharging = Field[int]()
+    battery_full_capacity = Field[int]()
+    battery_remaining_energy = Field[int]()
+    ac_ports = Field[bool]()
+    cell_temperature = Field[int]()
+    system_role = Field[Any]()
 
     def __init__(self, pack: "Pack", serial_number: str, address: str) -> None:
         super().__init__()
         self._pack = pack
         self.serial_number = serial_number
         self.address = address
+
+    @property
+    def pack_address(self) -> str:
+        return self._pack.address
 
     @property
     def name(self) -> str:
@@ -152,6 +174,17 @@ class PackUnit(_VirtualDevice):
     @computed_field
     def unit_battery_ac_output_power(self) -> float | None:
         return pnegative()(self.unit_battery_power)
+
+    @controls.outlet(ac_ports)
+    async def enable_ac_ports(self, enabled: bool):
+        await self._pack.send_to_unit(self.serial_number, "enable_ac_ports", enabled)
+
+    def update_field(self, name: str, value: Any) -> None:
+        if value is None:
+            return
+        self.reset_updated()
+        setattr(self, name, value)
+        self._notify_updated()
 
     def apply(self, report: "UnitReport") -> None:
         self.reset_updated()
@@ -220,7 +253,7 @@ class Pack(_VirtualDevice):
         # owner chose, and which entities a new unit needs
         self.resolve_unit_address: Callable[[str], str | None] = lambda _serial: None
         self.on_report_interval_chosen: Callable[[float], None] = lambda _seconds: None
-        self.on_new_unit: Callable[[PackUnit], None] = lambda _unit: None
+        self.new_unit_listeners: list[Callable[[PackUnit], None]] = []
         self._members: dict[Member, list[Callable[[], None]]] = {}
         self._tasks: set[asyncio.Task[Any]] = set()
 
@@ -296,7 +329,19 @@ class Pack(_VirtualDevice):
         stops.append(
             lambda: member.remove_state_update_callback(enforce, "pack_report_interval")
         )
-        self._unit(member.serial_number, member.address)
+        unit = self._unit(member.serial_number, member.address)
+        for member_field, unit_field in _MEMBER_UNIT_FIELDS.items():
+
+            def update_unit(value: Any, unit_field: str = unit_field) -> None:
+                unit.update_field(unit_field, value)
+
+            member.register_state_update_callback(update_unit, member_field)
+            stops.append(
+                lambda update_unit=update_unit, member_field=member_field: (
+                    member.remove_state_update_callback(update_unit, member_field)
+                )
+            )
+            update_unit(getattr(member, member_field))
         self._publish_all()
 
     def detach(self, member: "Member") -> None:
@@ -320,7 +365,8 @@ class Pack(_VirtualDevice):
         )
         unit = _unit_class(serial_number)(self, serial_number, address)
         self.units[serial_number] = unit
-        self.on_new_unit(unit)
+        for listener in self.new_unit_listeners:
+            listener(unit)
         return unit
 
     def known_unit(self, serial_number: str) -> None:
@@ -360,6 +406,14 @@ class Pack(_VirtualDevice):
             (member for member in self._members if member.is_connected),
             key=lambda member: not member.is_master,
         )
+
+    async def send_to_unit(self, serial_number: str, name: str, *args: Any) -> None:
+        """Send what only that unit can apply, which its own link has to carry"""
+        for member in self._members:
+            if member.serial_number == serial_number and member.is_connected:
+                await getattr(member, name)(*args)
+                return
+        raise NotConnectedError(f"{serial_number} is not connected")
 
     async def _command(self, name: str, *args: Any) -> None:
         """Send to the master, falling back on the other units if it can't be reached"""

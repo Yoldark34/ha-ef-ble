@@ -1038,7 +1038,7 @@ def _track_pack_units(
 
     for unit in pack.units.values():
         add_unit(unit)
-    pack.on_new_unit = add_unit
+    pack.new_unit_listeners.append(add_unit)
 
 
 def _get_extra_battery_entities(

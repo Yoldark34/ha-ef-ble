@@ -17,6 +17,7 @@ from .deprecated.switches import DEPRECATED_SWITCH_TYPES
 from .description_builder import EntityDescriptionBuilder
 from .eflib import DeviceBase, get_controls
 from .eflib.entity import controls
+from .eflib.pack import Pack, PackUnit
 from .entity import DeviceNamedEntity, EcoflowEntity
 
 
@@ -106,6 +107,9 @@ async def async_setup_entry(
             )
         ]
 
+    if isinstance(device, Pack):
+        _track_pack_units(device, async_add_entities)
+
     entities = [
         (
             EcoflowNamedSwitchEntity
@@ -116,6 +120,24 @@ async def async_setup_entry(
     ]
     if entities:
         async_add_entities(entities)
+
+
+def _track_pack_units(pack: Pack, async_add_entities: AddEntitiesCallback) -> None:
+    def add_unit(unit: PackUnit) -> None:
+        async_add_entities(
+            EcoflowSwitchEntity(
+                unit,
+                _BUILDERS[switch.__class__]
+                .builder(switch, SwitchBuilder.from_entity(switch))
+                .enable_func(switch.enable_func)
+                .build(),
+            )
+            for switch in get_controls(unit, controls.toggle)
+        )
+
+    for unit in pack.units.values():
+        add_unit(unit)
+    pack.new_unit_listeners.append(add_unit)
 
 
 class EcoflowSwitchEntity(EcoflowEntity, SwitchEntity):

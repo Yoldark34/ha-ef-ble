@@ -83,7 +83,7 @@ async def test_stream_ac_5000_parses_battery_level_and_temperature(
     assert processed is True
     assert reports[-1].soc == 19
     # the pack reports four temperatures; the hottest one is what gets exposed
-    assert device.cell_temperature == 39
+    assert device.own_cell_temperature == 39
 
 
 async def test_stream_ac_5000_reports_battery_power_negative_while_discharging(
@@ -140,7 +140,7 @@ async def test_stream_ac_5000_reads_its_configuration_blocks(device, payload_seq
     assert device.pack_battery_charge_limit_min == 0
     assert device.pack_energy_backup is False
     assert device.pack_energy_backup_battery_level == 40
-    assert device.ac_ports is True
+    assert device.own_ac_ports is True
 
 
 async def test_stream_ac_5000_routed_frame_round_trips(routed_frame):
@@ -229,7 +229,7 @@ async def test_stream_ac_5000_reads_its_role_in_the_pack(device):
     await device.data_parse(_telemetry("da010410021801"))
     await device.data_parse(_telemetry("da01022002"))
 
-    assert device.system_role == SystemRole.SLAVE
+    assert device.own_system_role == SystemRole.SLAVE
     assert device.pack_unit_count == 2
 
 
@@ -270,8 +270,8 @@ async def test_stream_ac_5000_reports_battery_capacity(device):
     # a unit at 58 %, which is what 2903 Wh of 5008 Wh comes to
     await device.data_parse(_telemetry("e20212083a1017180020902728d71630b22e38b32e"))
 
-    assert device.battery_full_capacity == 5008
-    assert device.battery_remaining_energy == 2903
+    assert device.own_battery_full_capacity == 5008
+    assert device.own_battery_remaining_energy == 2903
 
 
 async def test_stream_ac_5000_exact_values_from_known_packets(
@@ -287,14 +287,14 @@ async def test_stream_ac_5000_exact_values_from_known_packets(
         Device.pack_load_system: 200,
         Device.pack_load_from_battery: 0,
         Device.pack_load_from_grid: 200,
-        Device.cell_temperature: 40,
-        Device.remaining_time_charging: 368,
-        Device.remaining_time_discharging: 5939,
+        Device.own_cell_temperature: 40,
+        Device.own_remaining_time_charging: 368,
+        Device.own_remaining_time_discharging: 5939,
         Device.pack_battery_charge_limit_max: 100,
         Device.pack_battery_charge_limit_min: 0,
         Device.pack_energy_backup: False,
         Device.pack_energy_backup_battery_level: 40,
-        Device.ac_ports: True,
+        Device.own_ac_ports: True,
     }
 
     for field, expected_value in expected.items():

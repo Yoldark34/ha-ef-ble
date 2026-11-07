@@ -243,6 +243,28 @@ async def test_pack_leaves_a_unit_already_on_the_chosen_interval(mocker, pack, m
     send.assert_not_awaited()
 
 
+async def test_pack_unit_shows_what_only_its_own_link_carries(pack, slave):
+    await slave.data_parse(_telemetry("e20212083a1017180020902728d71630b22e38b32e"))
+
+    unit = pack.units[slave.serial_number]
+    assert unit.battery_full_capacity == 5008
+    assert unit.battery_remaining_energy == 2903
+
+
+async def test_pack_unit_sends_its_ac_ports_over_its_own_link(pack, master, slave):
+    await pack.units[slave.serial_number].enable_ac_ports(True)
+
+    slave._conn.send_packet.assert_awaited_once()
+    master._conn.send_packet.assert_not_awaited()
+
+
+async def test_pack_unit_fails_loudly_when_its_link_is_down(pack, slave):
+    slave._conn = None
+
+    with pytest.raises(NotConnectedError):
+        await pack.units[slave.serial_number].enable_ac_ports(True)
+
+
 async def test_pack_command_fails_loudly_when_no_unit_answers(pack, master, slave):
     master._conn.send_packet.side_effect = NotConnectedError("gone")
     slave._conn.send_packet.side_effect = NotConnectedError("gone")

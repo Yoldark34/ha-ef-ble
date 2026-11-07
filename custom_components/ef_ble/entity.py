@@ -65,7 +65,15 @@ class EcoflowEntity(Entity):
             )
 
         if isinstance(self._device, PackUnit):
-            return DeviceInfo(identifiers={(DOMAIN, self._device.address)})
+            return DeviceInfo(
+                identifiers={(DOMAIN, self._device.address)},
+                name=self._device.name,
+                manufacturer=MANUFACTURER,
+                model=self._device.device,
+                serial_number=self._device.serial_number,
+                sw_version=self._integration_version,
+                via_device=(DOMAIN, self._device.pack_address),
+            )
 
         return DeviceInfo(
             identifiers={
