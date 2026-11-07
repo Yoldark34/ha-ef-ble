@@ -49,8 +49,9 @@ class EcoflowEntity(Entity):
         return key
 
     @property
-    def _integration_version(self) -> str:
-        return f"EcoFlow BLE {async_get_loaded_integration(self.hass, DOMAIN).version}"
+    def _manufacturer(self) -> str:
+        version = async_get_loaded_integration(self.hass, DOMAIN).version
+        return f"{MANUFACTURER} using EcoFlow BLE {version}"
 
     @property
     def device_info(self):
@@ -59,19 +60,22 @@ class EcoflowEntity(Entity):
             return DeviceInfo(
                 identifiers={(DOMAIN, self._device.address)},
                 name=self._device.name,
-                manufacturer=MANUFACTURER,
+                manufacturer=self._manufacturer,
                 model=self._device.device,
-                sw_version=self._integration_version,
             )
 
         if isinstance(self._device, PackUnit):
             return DeviceInfo(
                 identifiers={(DOMAIN, self._device.address)},
+                connections=(
+                    {(CONNECTION_BLUETOOTH, self._device.address)}
+                    if self._device.has_bluetooth_address
+                    else set()
+                ),
                 name=self._device.name,
-                manufacturer=MANUFACTURER,
+                manufacturer=self._manufacturer,
                 model=self._device.device,
                 serial_number=self._device.serial_number,
-                sw_version=self._integration_version,
                 via_device=(DOMAIN, self._device.pack_address),
             )
 
@@ -83,10 +87,9 @@ class EcoflowEntity(Entity):
                 (CONNECTION_BLUETOOTH, self._device.address),
             },
             name=self._device.name,
-            manufacturer=MANUFACTURER,
+            manufacturer=self._manufacturer,
             model=self._device.device,
             serial_number=self._device.serial_number,
-            sw_version=self._integration_version,
         )
 
     @property

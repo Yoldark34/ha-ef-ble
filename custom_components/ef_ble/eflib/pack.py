@@ -156,6 +156,10 @@ class PackUnit(_VirtualDevice):
         return self._pack.address
 
     @property
+    def has_bluetooth_address(self) -> bool:
+        return not self.address.startswith("unit_")
+
+    @property
     def name(self) -> str:
         return f"{self.device} {self.serial_number[-4:]}"
 
