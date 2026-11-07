@@ -34,6 +34,14 @@ pb_flow = proto_attr_mapper(es22_bkw_pb2.DevEnergyFlowDetail)
 pb_battery = proto_attr_mapper(es22_bkw_pb2.BatteryInfoItem)
 pb_system_battery = proto_attr_mapper(es22_bkw_pb2.SystemSubDevBatteryInfo)
 
+# The device leaves out a reading that is zero, even inside a block it does post, where
+# keeping the previous reading would hold on to a flow that has stopped
+_ZERO_IF_OMITTED = TransformIfMissing[int, int](lambda value: value or 0)
+
+
+def _preferred[T](value: T | None, fallback: T | None) -> T | None:
+    return value if value is not None else fallback
+
 
 class Device(DeviceBase, ProtobufProps):
     """STREAM AC 5000"""
@@ -51,9 +59,18 @@ class Device(DeviceBase, ProtobufProps):
     # app's own value for a once-off report of every property
     _ACTION_FULL_UPLOAD: ClassVar[int] = 88
 
-    battery_level = repeated_pb_field(
+    # Firmware 1.1.6.18 posts both `system_sub_dev_*` blocks empty, at least while the
+    # battery idles, so `sys_energy_stream_report` stands in for what they carry
+    _sub_dev_battery_level = repeated_pb_field(
         pb.system_sub_dev_battery_report.system_sub_dev_battery_info,
         pb_system_battery.soc,
+    )
+    _stream_battery_level = pb_field(pb.sys_energy_stream_report.bp_soc)
+    _stream_battery_power = pb_field(
+        pb.sys_energy_stream_report.bp_pwr, _ZERO_IF_OMITTED
+    )
+    _stream_grid_power = pb_field(
+        pb.sys_energy_stream_report.on_grid_pwr, _ZERO_IF_OMITTED
     )
     battery_level_main = repeated_pb_field(
         pb.battery_info_report.battery_info_item, pb_battery.soc
@@ -65,24 +82,18 @@ class Device(DeviceBase, ProtobufProps):
         pb.sys_battery_info_report.discharge_remain_time
     )
 
-    battery_power = repeated_pb_field(
+    _sub_dev_battery_power = repeated_pb_field(
         pb.system_sub_dev_energy_flow_detail.dev_energy_flow_detail,
         pb_flow.inv_pwr,
         TransformIfMissing[float, float](
             lambda value: out_power(value) if value is not None else 0.0
         ),
     )
-    battery_ac_input_power = repeated_pb_field(
+    _sub_dev_battery_ac_power = repeated_pb_field(
         pb.system_sub_dev_energy_flow_detail.dev_energy_flow_detail,
         pb_flow.bp_pwr,
-        ppositive(),
     )
-    battery_ac_output_power = repeated_pb_field(
-        pb.system_sub_dev_energy_flow_detail.dev_energy_flow_detail,
-        pb_flow.bp_pwr,
-        pnegative(),
-    )
-    grid_power = repeated_pb_field(
+    _sub_dev_grid_power = repeated_pb_field(
         pb.system_sub_dev_energy_flow_detail.dev_energy_flow_detail,
         pb_flow.on_grid_pwr,
         pround(2),
@@ -95,8 +106,12 @@ class Device(DeviceBase, ProtobufProps):
     _bp_to_backup = pb_field(pb.energy_flow_from_to_detail.bp_to_backup)
     _grid_to_backup = pb_field(pb.energy_flow_from_to_detail.grid_to_backup)
 
-    load_from_battery = pb_field(pb.energy_flow_from_to_detail.bp_to_load)
-    load_from_grid = pb_field(pb.energy_flow_from_to_detail.grid_to_load)
+    load_from_battery = pb_field(
+        pb.energy_flow_from_to_detail.bp_to_load, _ZERO_IF_OMITTED
+    )
+    load_from_grid = pb_field(
+        pb.energy_flow_from_to_detail.grid_to_load, _ZERO_IF_OMITTED
+    )
 
     battery_charge_limit_max = pb_field(pb.bp_soc_config.charge_soc_upper_limit)
     battery_charge_limit_min = pb_field(pb.bp_soc_config.discharge_soc_lower_limit)
@@ -129,6 +144,30 @@ class Device(DeviceBase, ProtobufProps):
     @classmethod
     def check(cls, sn):
         return sn[:4] in cls.SN_PREFIX
+
+    @computed_field
+    def battery_level(self) -> int | None:
+        return _preferred(self._sub_dev_battery_level, self._stream_battery_level)
+
+    @computed_field
+    def battery_power(self) -> float | None:
+        return _preferred(self._sub_dev_battery_power, self._stream_battery_power)
+
+    @computed_field
+    def battery_ac_input_power(self) -> float | None:
+        return ppositive()(self._battery_ac_power)
+
+    @computed_field
+    def battery_ac_output_power(self) -> float | None:
+        return pnegative()(self._battery_ac_power)
+
+    @computed_field
+    def grid_power(self) -> float | None:
+        return _preferred(self._sub_dev_grid_power, self._stream_grid_power)
+
+    @property
+    def _battery_ac_power(self) -> float | None:
+        return _preferred(self._sub_dev_battery_ac_power, self._stream_battery_power)
 
     @computed_field
     def backup_port_power(self) -> float | None:

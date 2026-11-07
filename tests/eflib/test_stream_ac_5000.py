@@ -31,6 +31,19 @@ def routed_frame():
 
 
 @pytest.fixture
+def idle_payload_sequence():
+    """Payloads from a firmware 1.1.6.18 unit, its battery idle and the house on grid"""
+    return [
+        # the sub-device energy flow block, posted empty
+        "920300",
+        # a watt on the battery and on the grid port, with the battery block empty
+        "5a0c08cc0e10ce0e2002283a3001620530a6073801b20300",
+        # both of those down to zero, and left out
+        "5a0808ee0d10ee0d283a620330f706b20300",
+    ]
+
+
+@pytest.fixture
 def device(mocker: MockerFixture):
     ble_dev = mocker.Mock()
     ble_dev.address = "AA:BB:CC:DD:EE:FF"
@@ -162,6 +175,32 @@ async def test_stream_ac_5000_zeroes_battery_power_when_the_entry_omits_it(devic
     assert device.grid_power == 10.0
 
 
+async def test_stream_ac_5000_reads_the_stream_report_when_sub_dev_blocks_are_empty(
+    device, idle_payload_sequence
+):
+    for payload_hex in idle_payload_sequence[:2]:
+        await device.data_parse(_telemetry(payload_hex))
+
+    assert device.battery_level == 58
+    assert device.battery_power == 1
+    assert device.battery_ac_input_power == 1
+    assert device.battery_ac_output_power == 0
+    assert device.grid_power == -1
+    assert device.load_from_grid == 934
+
+
+async def test_stream_ac_5000_zeroes_readings_a_posted_block_leaves_out(
+    device, idle_payload_sequence
+):
+    for payload_hex in idle_payload_sequence:
+        await device.data_parse(_telemetry(payload_hex))
+
+    assert device.battery_power == 0
+    assert device.grid_power == 0
+    assert device.load_from_battery == 0
+    assert device.load_from_grid == 887
+
+
 async def test_stream_ac_5000_exact_values_from_known_packets(
     device, payload_sequence, routed_frame
 ):
@@ -178,7 +217,7 @@ async def test_stream_ac_5000_exact_values_from_known_packets(
         Device.grid_power: -1002.79,
         Device.backup_port_power: None,
         Device.load_system: 200,
-        Device.load_from_battery: 300,
+        Device.load_from_battery: 0,
         Device.load_from_grid: 200,
         Device.cell_temperature: 40,
         Device.remaining_time_charging: 368,
