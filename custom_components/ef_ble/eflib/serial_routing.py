@@ -86,7 +86,7 @@ class SerialRouting:
     SERIAL_FRAGMENT_LEN: ClassVar[int] = 9
     ADDRESSED_BY_SERIAL: ClassVar[int] = 1
     ADDRESSED_BY_MODULE: ClassVar[int] = 2
-    _WRITE_CMD_FLAGS: ClassVar[int] = 0x10
+    _WRITE_CMD_FLAGS: ClassVar[int] = 0x11
     _WRITE_ENVELOPE_PREFIX: ClassVar[bytes] = bytes([0x40, 0x03, 0x03])
 
     def __init__(
@@ -117,8 +117,9 @@ class SerialRouting:
         cmd_flags, optional
             The byte that opens the frame body and says how each end is addressed, as
             `destination << 4 | source`, each nibble either `ADDRESSED_BY_SERIAL` or
-            `ADDRESSED_BY_MODULE`. A write carrying two serials is `0x11`; a device's own
-            post, addressed from its serial to the app's module, reads back as `0x21`
+            `ADDRESSED_BY_MODULE`, as the device reads it. A write carrying two serials
+            is `0x11`; a device's own post, addressed from its serial to the app's
+            module, is `0x21`
         sequenced_writes, optional
             Whether to number writes in the envelope's sequence slot. The devices number
             their own posts there; leave it off where a device is known to accept a zero
@@ -164,6 +165,12 @@ class SerialRouting:
         )
         return envelope.flags if envelope is not None else 0x00
 
+    def _frame_cmd_flags(self, post: PacketV4) -> int:
+        # On a session frame the device applies `v4_type_b` to the inner header as well
+        # as to the payload, and `PacketV4` only undoes it on the payload. Every other
+        # header byte is mirrored and so keeps that layer, this one has to be given it
+        return self._cmd_flags ^ post.v4_type_b if post.obfuscated else self._cmd_flags
+
     def _next_seq(self) -> int:
         if not self._sequenced_writes:
             return 0x00
@@ -200,7 +207,7 @@ class SerialRouting:
         serial16 = self._serial.encode("ascii")
         return dataclasses.replace(
             self._post_template,
-            cmd_flags=self._cmd_flags,
+            cmd_flags=self._frame_cmd_flags(self._post_template),
             is_ack=True,
             is_rw_cmd=False,
             payload=serial9 + serial16 + envelope + body,

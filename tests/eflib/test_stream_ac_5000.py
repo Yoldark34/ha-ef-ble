@@ -1,3 +1,5 @@
+import dataclasses
+
 import pytest
 from pytest_mock import MockerFixture
 
@@ -200,6 +202,26 @@ async def test_stream_ac_5000_zeroes_readings_a_posted_block_leaves_out(
     assert device.grid_power == 0
     assert device.load_from_battery == 0
     assert device.load_from_grid == 887
+
+
+@pytest.mark.parametrize(
+    ("v4_type_a", "v4_type_b", "cmd_flags"),
+    [
+        pytest.param(0x00, 0x01, 0x11, id="clear_frame"),
+        pytest.param(0x13, 0x01, 0x10, id="session_frame"),
+    ],
+)
+async def test_stream_ac_5000_write_carries_the_session_layer_of_the_post(
+    device, routed_frame, v4_type_a, v4_type_b, cmd_flags
+):
+    post = await device.packet_parse(bytes.fromhex(routed_frame))
+    await device.data_parse(
+        dataclasses.replace(post, v4_type_a=v4_type_a, v4_type_b=v4_type_b)
+    )
+
+    await device.set_energy_backup_battery_level(60)
+
+    assert device._conn.send_packet.await_args.args[0].cmd_flags == cmd_flags
 
 
 async def test_stream_ac_5000_reports_battery_capacity(device):

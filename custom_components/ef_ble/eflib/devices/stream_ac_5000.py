@@ -145,10 +145,6 @@ class Device(DeviceBase, ProtobufProps):
             cmd_id=self._WRITE_CMD_ID,
             dst=self._SYSTEM_MODULE,
             fallback_dst=self._SYSTEM_MODULE,
-            # A write names both ends by serial, where the device's own posts name only
-            # their own end that way and address the app by module
-            cmd_flags=(SerialRouting.ADDRESSED_BY_SERIAL << 4)
-            | SerialRouting.ADDRESSED_BY_SERIAL,
             sequenced_writes=True,
         )
         self._full_upload_requested = False
