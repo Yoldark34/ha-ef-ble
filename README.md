@@ -479,12 +479,14 @@ each battery under it. See the
 - Status (`ready`, `degraded`, `waiting`, `offline`)
 - Battery level
 - Battery power, AC input power, AC output power
-- Grid power, house grid power
-- System load, load from battery, load from grid
+- House grid power, system load
+- Grid power, load from battery, load from grid (disabled by default)
 - Units in the pack
 
 **Pack controls**
 
+- Standby
+- Work mode (self-consumption, AI mode, schedule)
 - Backup reserve (on/off and level)
 - Charge limit, discharge limit
 - Max output power, max charging power
