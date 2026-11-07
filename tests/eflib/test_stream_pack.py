@@ -101,6 +101,28 @@ async def test_pack_sends_its_power_limits_to_the_master(pack, master, slave):
     slave._conn.send_packet.assert_not_awaited()
 
 
+async def test_pack_only_commands_its_own_units(mocker, pack, master, slave):
+    other_unit = _unit(mocker, stream_5000.Device, "ES21XXXXXXXXX999")
+    await other_unit.data_parse(_telemetry(MASTER))
+    other_pack = Pack("2", "ES21XXXXXXXXX999")
+    other_pack.attach(other_unit)
+
+    await other_pack.set_energy_backup_battery_level(60)
+
+    other_unit._conn.send_packet.assert_awaited_once()
+    master._conn.send_packet.assert_not_awaited()
+    slave._conn.send_packet.assert_not_awaited()
+
+
+async def test_pack_ignores_the_totals_of_another_pack(mocker, pack):
+    other_unit = _unit(mocker, stream_5000.Device, "ES21XXXXXXXXX999")
+    Pack("2", "ES21XXXXXXXXX999").attach(other_unit)
+
+    await other_unit.data_parse(_telemetry(TOTALS))
+
+    assert pack.house_grid_power is None
+
+
 async def test_pack_command_fails_loudly_when_no_unit_answers(pack, master, slave):
     master._conn.send_packet.side_effect = NotConnectedError("gone")
     slave._conn.send_packet.side_effect = NotConnectedError("gone")

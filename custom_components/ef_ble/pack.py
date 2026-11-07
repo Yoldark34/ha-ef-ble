@@ -34,17 +34,26 @@ def _pack(hass: HomeAssistant, pack_id: str) -> Pack:
 def _first_unit_serial(hass: HomeAssistant, fallback: str) -> str:
     # The pack takes over the entities of the first unit added, so that its history and
     # the dashboards built on it carry on. Which unit connects first varies, so read it
-    # from the registry instead
+    # from the registry instead, leaving out the units other packs have already claimed
+    claimed = {
+        entry.data[CONF_PACK_SERIAL]
+        for entry in hass.config_entries.async_entries(DOMAIN)
+        if is_pack_entry(entry)
+    }
     candidates = [
         entity
         for entity in er.async_get(hass).entities.values()
         if entity.platform == DOMAIN
         and entity.unique_id.endswith(f"_{_FIRST_UNIT_KEY}")
+        and _unit_serial(entity.unique_id) not in claimed
     ]
     if not candidates:
         return fallback
-    oldest = min(candidates, key=lambda entity: entity.created_at)
-    return oldest.unique_id.removeprefix("ef_").removesuffix(f"_{_FIRST_UNIT_KEY}")
+    return _unit_serial(min(candidates, key=lambda e: e.created_at).unique_id)
+
+
+def _unit_serial(unique_id: str) -> str:
+    return unique_id.removeprefix("ef_").partition("_")[0]
 
 
 async def _async_ensure_entry(hass: HomeAssistant, pack_id: str, serial: str) -> None:
@@ -79,6 +88,7 @@ def async_track_member(hass: HomeAssistant, device: DeviceBase) -> Callable[[], 
         pack = _pack(hass, pack_id)
         pack.attach(device)
         joined.append(pack)
+        _async_remove_unit_duplicates(hass, pack)
         hass.async_create_task(_async_ensure_entry(hass, pack_id, device.serial_number))
 
     device.register_state_update_callback(join, "pack_id")
@@ -93,13 +103,20 @@ def async_track_member(hass: HomeAssistant, device: DeviceBase) -> Callable[[], 
     return leave
 
 
-def _async_remove_unit_duplicates(hass: HomeAssistant, serial: str) -> None:
+def _async_remove_unit_duplicates(hass: HomeAssistant, pack: Pack) -> None:
+    """Remove what the pack's units used to own, once the pack has its own identity"""
+    if not pack.serial_number:
+        return
+
     registry = er.async_get(hass)
+    units = {member.serial_number for member in pack.members} - {pack.serial_number}
     for entity in list(registry.entities.values()):
-        if entity.platform != DOMAIN or not entity.unique_id.startswith("ef_"):
+        if entity.platform != DOMAIN or _unit_serial(entity.unique_id) not in units:
             continue
-        unit, _, key = entity.unique_id.removeprefix("ef_").partition("_")
-        if unit != serial and key in PACK_KEYS and unit[:3] == serial[:3]:
+        if (
+            entity.unique_id.partition(f"{_unit_serial(entity.unique_id)}_")[2]
+            in PACK_KEYS
+        ):
             _LOGGER.debug("Removing %s, now owned by the pack", entity.entity_id)
             registry.async_remove(entity.entity_id)
 
@@ -109,5 +126,5 @@ async def async_setup_pack_entry(hass: HomeAssistant, entry: ConfigEntry) -> boo
     pack.serial_number = entry.data[CONF_PACK_SERIAL]
     entry.runtime_data = pack
     await hass.config_entries.async_forward_entry_setups(entry, PACK_PLATFORMS)
-    _async_remove_unit_duplicates(hass, pack.serial_number)
+    _async_remove_unit_duplicates(hass, pack)
     return True
