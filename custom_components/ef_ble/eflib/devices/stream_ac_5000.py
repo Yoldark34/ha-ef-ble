@@ -6,7 +6,6 @@ from google.protobuf.message import Message
 
 from ..devicebase import DeviceBase
 from ..entity import controls
-from ..entity.base import dynamic
 from ..packet import Packet, PacketV4
 from ..pb import es22_bkw_pb2
 from ..props import (
@@ -33,7 +32,6 @@ _PROPERTY_BLOCKS = {
 
 pb_flow = proto_attr_mapper(es22_bkw_pb2.DevEnergyFlowDetail)
 pb_battery = proto_attr_mapper(es22_bkw_pb2.BatteryInfoItem)
-pb_system_battery = proto_attr_mapper(es22_bkw_pb2.SystemSubDevBatteryInfo)
 
 # The device leaves out a reading that is zero, even inside a block it does post, where
 # keeping the previous reading would hold on to a flow that has stopped
@@ -41,10 +39,6 @@ ZERO_IF_OMITTED = TransformIfMissing[int, int](lambda value: value or 0)
 _ROUNDED_OR_ZERO = TransformIfMissing[float, float](
     lambda value: round(value, 2) if value is not None else 0.0
 )
-
-
-def _preferred[T](value: T | None, fallback: T | None) -> T | None:
-    return value if value is not None else fallback
 
 
 class SystemRole(IntFieldValue):
@@ -69,38 +63,39 @@ class Device(DeviceBase, ProtobufProps):
     system_role = pb_field(
         pb.system_config.distributed_device_role, SystemRole.from_value
     )
-    system_unit_count = pb_field(pb.system_config.system_dev_cnt)
+    system_group_id = pb_field(pb.system_config.system_group_id)
 
-    # Each unit of a pack posts both `system_sub_dev_*` blocks with an entry per unit, and
-    # `sys_energy_stream_report` with the totals of the pack. A unit reads its own entry
-    # and falls back on those totals only while the blocks arrive empty
-    _sub_dev_battery_level = repeated_pb_field(
-        pb.system_sub_dev_battery_report.system_sub_dev_battery_info,
-        pb_system_battery.soc,
-        own_key=pb_system_battery.sn,
+    # The whole pack, repeated identically by each unit. The `pack_` names keep these off
+    # the unit's own device: `eflib.pack.Pack` reads them and owns their entities
+    pack_unit_count = pb_field(pb.system_config.system_dev_cnt)
+    pack_battery_level = pb_field(pb.sys_energy_stream_report.bp_soc)
+    pack_battery_power = pb_field(pb.sys_energy_stream_report.bp_pwr, ZERO_IF_OMITTED)
+    pack_grid_power = pb_field(pb.sys_energy_stream_report.on_grid_pwr, ZERO_IF_OMITTED)
+    # What the whole house draws from the grid, where `pack_grid_power` is the pack's
+    # own grid port: a pack charging at 1002 W under a 200 W load reports 1202 and -1002
+    pack_house_grid_power = pb_field(
+        pb.sys_energy_stream_report.grid_pwr, ZERO_IF_OMITTED
     )
-    _stream_battery_level = pb_field(pb.sys_energy_stream_report.bp_soc)
-    _stream_battery_power = pb_field(
-        pb.sys_energy_stream_report.bp_pwr, ZERO_IF_OMITTED
+    pack_load_system = pb_field(pb.sys_energy_stream_report.load_pwr)
+    pack_load_from_battery = pb_field(
+        pb.energy_flow_from_to_detail.bp_to_load, ZERO_IF_OMITTED
     )
-    _stream_grid_power = pb_field(
-        pb.sys_energy_stream_report.on_grid_pwr, ZERO_IF_OMITTED
+    pack_load_from_grid = pb_field(
+        pb.energy_flow_from_to_detail.grid_to_load, ZERO_IF_OMITTED
     )
+    pack_battery_charge_limit_max = pb_field(pb.bp_soc_config.charge_soc_upper_limit)
+    pack_battery_charge_limit_min = pb_field(pb.bp_soc_config.discharge_soc_lower_limit)
+    pack_energy_backup = pb_field(pb.bp_backup_config.backup_soc_on_off)
+    pack_energy_backup_battery_level = pb_field(pb.bp_backup_config.backup_soc)
+
+    # This unit alone: its own entry of the `system_sub_dev_*` blocks, which carry one
+    # per unit, and its own battery report
     battery_level_main = repeated_pb_field(
         pb.battery_info_report.battery_info_item,
         pb_battery.soc,
         own_key=pb_battery.sn,
     )
-
-    load_system = pb_field(pb.sys_energy_stream_report.load_pwr)
-    remaining_time_charging = pb_field(pb.sys_battery_info_report.charge_remain_time)
-    remaining_time_discharging = pb_field(
-        pb.sys_battery_info_report.discharge_remain_time
-    )
-    battery_full_capacity = pb_field(pb.sys_battery_info_report.full_cap)
-    battery_remaining_energy = pb_field(pb.sys_battery_info_report.remain_cap)
-
-    _sub_dev_battery_power = repeated_pb_field(
+    unit_battery_power = repeated_pb_field(
         pb.system_sub_dev_energy_flow_detail.dev_energy_flow_detail,
         pb_flow.inv_pwr,
         TransformIfMissing[float, float](
@@ -108,13 +103,13 @@ class Device(DeviceBase, ProtobufProps):
         ),
         own_key=pb_flow.dev_sn,
     )
-    _sub_dev_battery_ac_power = repeated_pb_field(
+    _unit_battery_ac_power = repeated_pb_field(
         pb.system_sub_dev_energy_flow_detail.dev_energy_flow_detail,
         pb_flow.bp_pwr,
         _ROUNDED_OR_ZERO,
         own_key=pb_flow.dev_sn,
     )
-    _sub_dev_grid_power = repeated_pb_field(
+    unit_grid_power = repeated_pb_field(
         pb.system_sub_dev_energy_flow_detail.dev_energy_flow_detail,
         pb_flow.on_grid_pwr,
         _ROUNDED_OR_ZERO,
@@ -135,21 +130,12 @@ class Device(DeviceBase, ProtobufProps):
         pb.energy_flow_from_to_detail.grid_to_backup, ZERO_IF_OMITTED
     )
 
-    # What the whole house draws from the grid, where `grid_power` is the unit's own
-    # grid port: a unit charging at 1002 W under a 200 W load reports 1202 and -1002
-    house_grid_power = pb_field(pb.sys_energy_stream_report.grid_pwr, ZERO_IF_OMITTED)
-
-    load_from_battery = pb_field(
-        pb.energy_flow_from_to_detail.bp_to_load, ZERO_IF_OMITTED
+    remaining_time_charging = pb_field(pb.sys_battery_info_report.charge_remain_time)
+    remaining_time_discharging = pb_field(
+        pb.sys_battery_info_report.discharge_remain_time
     )
-    load_from_grid = pb_field(
-        pb.energy_flow_from_to_detail.grid_to_load, ZERO_IF_OMITTED
-    )
-
-    battery_charge_limit_max = pb_field(pb.bp_soc_config.charge_soc_upper_limit)
-    battery_charge_limit_min = pb_field(pb.bp_soc_config.discharge_soc_lower_limit)
-    energy_backup = pb_field(pb.bp_backup_config.backup_soc_on_off)
-    energy_backup_battery_level = pb_field(pb.bp_backup_config.backup_soc)
+    battery_full_capacity = pb_field(pb.sys_battery_info_report.full_cap)
+    battery_remaining_energy = pb_field(pb.sys_battery_info_report.remain_cap)
     ac_ports = pb_field(pb.dev_switch.ac_socket_onoff)
 
     cell_temperature = repeated_pb_field(
@@ -175,29 +161,24 @@ class Device(DeviceBase, ProtobufProps):
     def check(cls, sn):
         return sn[:4] in cls.SN_PREFIX
 
-    @computed_field
-    def battery_level(self) -> int | None:
-        return _preferred(self._sub_dev_battery_level, self._stream_battery_level)
-
-    @computed_field
-    def battery_power(self) -> float | None:
-        return _preferred(self._sub_dev_battery_power, self._stream_battery_power)
-
-    @computed_field
-    def battery_ac_input_power(self) -> float | None:
-        return ppositive()(self._battery_ac_power)
-
-    @computed_field
-    def battery_ac_output_power(self) -> float | None:
-        return pnegative()(self._battery_ac_power)
-
-    @computed_field
-    def grid_power(self) -> float | None:
-        return _preferred(self._sub_dev_grid_power, self._stream_grid_power)
-
     @property
-    def _battery_ac_power(self) -> float | None:
-        return _preferred(self._sub_dev_battery_ac_power, self._stream_battery_power)
+    def is_master(self) -> bool:
+        return self.system_role is SystemRole.MASTER
+
+    @computed_field
+    def pack_id(self) -> str | None:
+        """Which pack this unit belongs to, known once it has reported its system"""
+        if self.system_group_id:
+            return str(self.system_group_id)
+        return self.serial_number if self.pack_unit_count is not None else None
+
+    @computed_field
+    def unit_battery_ac_input_power(self) -> float | None:
+        return ppositive()(self._unit_battery_ac_power)
+
+    @computed_field
+    def unit_battery_ac_output_power(self) -> float | None:
+        return pnegative()(self._unit_battery_ac_power)
 
     @computed_field
     def backup_port_power(self) -> float | None:
@@ -257,36 +238,25 @@ class Device(DeviceBase, ProtobufProps):
         packet = self._routing.write_packet(message.SerializeToString())
         await self.send_packet(packet, raise_on_failure=True)
 
-    @controls.battery(
-        battery_charge_limit_max,
-        min=dynamic(battery_charge_limit_min),
-    )
+    # The settings below belong to the pack and any unit applies them to all of them, so
+    # `eflib.pack.Pack` exposes the controls and calls these
+
     async def set_battery_charge_limit_max(self, limit: float):
         await self._write_property(
             es22_bkw_pb2.BpSocConfig(charge_soc_upper_limit=int(limit))
         )
         return True
 
-    @controls.battery(
-        battery_charge_limit_min,
-        max=dynamic(battery_charge_limit_max),
-    )
     async def set_battery_charge_limit_min(self, limit: float):
         await self._write_property(
             es22_bkw_pb2.BpSocConfig(discharge_soc_lower_limit=int(limit))
         )
         return True
 
-    @controls.battery(
-        energy_backup_battery_level,
-        min=dynamic(battery_charge_limit_min),
-        max=dynamic(battery_charge_limit_max),
-    )
     async def set_energy_backup_battery_level(self, value: float):
         await self._write_property(es22_bkw_pb2.BpBackupConfig(backup_soc=int(value)))
         return True
 
-    @controls.switch(energy_backup)
     async def enable_energy_backup(self, enabled: bool):
         await self._write_property(
             es22_bkw_pb2.BpBackupConfig(backup_soc_on_off=enabled)

@@ -11,6 +11,7 @@ from homeassistant.helpers.restore_state import ExtraStoredData, RestoreEntity
 from .const import DOMAIN, MANUFACTURER
 from .eflib import DeviceBase
 from .eflib.device_mappings import battery_name_from_device
+from .eflib.pack import Pack
 from .registry import async_get_device
 
 
@@ -25,6 +26,14 @@ class EcoflowEntity(Entity):
     @property
     def device_info(self):
         """Return information to link this entity with the correct device"""
+        if isinstance(self._device, Pack):
+            return DeviceInfo(
+                identifiers={(DOMAIN, self._device.address)},
+                name=self._device.name,
+                manufacturer=MANUFACTURER,
+                model=self._device.device,
+            )
+
         return DeviceInfo(
             identifiers={
                 (DOMAIN, self._device.address),

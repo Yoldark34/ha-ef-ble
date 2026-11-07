@@ -55,6 +55,7 @@ from .const import (
     CONF_LOG_MESSAGES,
     CONF_LOG_PACKETS,
     CONF_LOG_PAYLOADS,
+    CONF_PACK_ID,
     CONF_PACKET_VERSION,
     CONF_PREFERRED_PROXY,
     CONF_PREFERRED_PROXY_TIMEOUT,
@@ -364,6 +365,9 @@ class EFBLEConfigFlow(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         """Reconfiguration of the picked device."""
         reconfigure_entry = self._get_reconfigure_entry()
+        if CONF_PACK_ID in reconfigure_entry.data:
+            return self.async_abort(reason="pack_not_reconfigurable")
+
         device: eflib.DeviceBase | None = getattr(
             reconfigure_entry, "runtime_data", None
         )
@@ -392,6 +396,19 @@ class EFBLEConfigFlow(ConfigFlow, domain=DOMAIN):
             ),
             errors=errors,
         )
+
+    @classmethod
+    @callback
+    def async_supports_options_flow(cls, config_entry: ConfigEntry) -> bool:
+        return CONF_PACK_ID not in config_entry.data
+
+    async def async_step_integration_discovery(
+        self, discovery_info: dict[str, Any]
+    ) -> ConfigFlowResult:
+        """Create the entry of a pack, which its first unit asks for on its own"""
+        await self.async_set_unique_id(f"pack_{discovery_info[CONF_PACK_ID]}")
+        self._abort_if_unique_id_configured()
+        return self.async_create_entry(title="Pack Stream 5000", data=discovery_info)
 
     @staticmethod
     @callback

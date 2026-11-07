@@ -56,6 +56,12 @@ from .eflib.connection import (
 from .eflib.exceptions import AuthErrors, UnsupportedBluetoothProtocol
 from .eflib.logging_util import ConnectionLog
 from .issues import create_charging_minimum_issue
+from .pack import (
+    PACK_PLATFORMS,
+    async_setup_pack_entry,
+    async_track_member,
+    is_pack_entry,
+)
 from .proxy import connect_gate, wait_for_preferred_proxy
 from .registry import async_get_device
 
@@ -80,7 +86,15 @@ _REAPPEAR_CALLBACKS_KEY = f"{DOMAIN}_reappear_callbacks"
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: DeviceConfigEntry) -> bool:
-    """Set up EF BLE device from a config entry."""
+    """Set up EF BLE device or pack from a config entry."""
+    if is_pack_entry(entry):
+        return await async_setup_pack_entry(hass, entry)
+    return await _async_setup_device_entry(hass, entry)
+
+
+async def _async_setup_device_entry(
+    hass: HomeAssistant, entry: DeviceConfigEntry
+) -> bool:
     _LOGGER.debug("Init EcoFlow BLE Integration")
 
     address = entry.data.get(CONF_ADDRESS)
@@ -226,11 +240,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: DeviceConfigEntry) -> bo
 
     entry.async_on_unload(device.on_disconnect(_on_disconnect))
 
+    entry.async_on_unload(async_track_member(hass, device))
+
     return True
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: DeviceConfigEntry) -> bool:
     """Unload a config entry."""
+    if is_pack_entry(entry):
+        return await hass.config_entries.async_unload_platforms(entry, PACK_PLATFORMS)
+
     _cancel_reappear_callback(hass, entry)
     device = entry.runtime_data
     try:
@@ -242,6 +261,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: DeviceConfigEntry) -> b
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: DeviceConfigEntry):
+    if is_pack_entry(entry):
+        return
+
     _cancel_reappear_callback(hass, entry)
     ConnectionLog.clean_cache_for(entry.data[CONF_ADDRESS])
 

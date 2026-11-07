@@ -913,6 +913,14 @@ _SENSORS: Final[dict[str, SensorEntityDescription]] = {
     "battery_power": power(precision=1),
     "battery_ac_input_power": power(precision=1),
     "battery_ac_output_power": power(precision=1),
+    "unit_battery_power": power(precision=1, translation_key="battery_power"),
+    "unit_battery_ac_input_power": power(
+        precision=1, translation_key="battery_ac_input_power"
+    ),
+    "unit_battery_ac_output_power": power(
+        precision=1, translation_key="battery_ac_output_power"
+    ),
+    "unit_grid_power": power(precision=1, translation_key="grid_power"),
     "system_role": enum(
         options=stream_ac_5000.SystemRole, entity_category=EntityCategory.DIAGNOSTIC
     ),

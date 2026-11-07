@@ -74,7 +74,7 @@ async def test_stream_ac_5000_parses_battery_level_and_temperature(
     processed = await device.data_parse(_telemetry(payload_sequence[1]))
 
     assert processed is True
-    assert device.battery_level == 20
+    assert device.battery_level_main == 19
     # the pack reports four temperatures; the hottest one is what gets exposed
     assert device.cell_temperature == 39
 
@@ -85,10 +85,10 @@ async def test_stream_ac_5000_reports_battery_power_negative_while_discharging(
     processed = await device.data_parse(_telemetry(payload_sequence[0]))
 
     assert processed is True
-    assert device.battery_power == pytest.approx(-311.43)
-    assert device.battery_ac_input_power == 0.0
-    assert device.battery_ac_output_power == pytest.approx(300.32)
-    assert device.load_from_battery == 300
+    assert device.unit_battery_power == pytest.approx(-311.43)
+    assert device.unit_battery_ac_input_power == 0.0
+    assert device.unit_battery_ac_output_power == pytest.approx(300.32)
+    assert device.pack_load_from_battery == 300
     assert device.backup_port_power == 0
 
 
@@ -98,10 +98,10 @@ async def test_stream_ac_5000_reports_battery_power_positive_while_charging(
     processed = await device.data_parse(_telemetry(payload_sequence[2]))
 
     assert processed is True
-    assert device.battery_power == pytest.approx(193.16)
-    assert device.battery_ac_input_power == pytest.approx(201.75)
-    assert device.battery_ac_output_power == 0.0
-    assert device.battery_level == 13
+    assert device.unit_battery_power == pytest.approx(193.16)
+    assert device.unit_battery_ac_input_power == pytest.approx(201.75)
+    assert device.unit_battery_ac_output_power == 0.0
+    assert device.pack_battery_level == 13
 
 
 async def test_stream_ac_5000_prefers_the_power_block_for_backup_port_power(device):
@@ -144,10 +144,10 @@ async def test_stream_ac_5000_reads_its_configuration_blocks(device, payload_seq
 
     assert await device.data_parse(packet) is True
 
-    assert device.battery_charge_limit_max == 100
-    assert device.battery_charge_limit_min == 0
-    assert device.energy_backup is False
-    assert device.energy_backup_battery_level == 40
+    assert device.pack_battery_charge_limit_max == 100
+    assert device.pack_battery_charge_limit_min == 0
+    assert device.pack_energy_backup is False
+    assert device.pack_energy_backup_battery_level == 40
     assert device.ac_ports is True
 
 
@@ -174,8 +174,8 @@ async def test_stream_ac_5000_zeroes_battery_power_when_the_entry_omits_it(devic
     )
     device.update_from_message(omitted)
 
-    assert device.battery_power == 0.0
-    assert device.grid_power == 10.0
+    assert device.unit_battery_power == 0.0
+    assert device.unit_grid_power == 10.0
 
 
 async def test_stream_ac_5000_reads_the_stream_report_when_sub_dev_blocks_are_empty(
@@ -184,13 +184,11 @@ async def test_stream_ac_5000_reads_the_stream_report_when_sub_dev_blocks_are_em
     for payload_hex in idle_payload_sequence[:2]:
         await device.data_parse(_telemetry(payload_hex))
 
-    assert device.battery_level == 58
-    assert device.battery_power == 1
-    assert device.battery_ac_input_power == 1
-    assert device.battery_ac_output_power == 0
-    assert device.grid_power == -1
-    assert device.house_grid_power == 935
-    assert device.load_from_grid == 934
+    assert device.pack_battery_level == 58
+    assert device.pack_battery_power == 1
+    assert device.pack_grid_power == -1
+    assert device.pack_house_grid_power == 935
+    assert device.pack_load_from_grid == 934
 
 
 async def test_stream_ac_5000_zeroes_readings_a_posted_block_leaves_out(
@@ -199,10 +197,10 @@ async def test_stream_ac_5000_zeroes_readings_a_posted_block_leaves_out(
     for payload_hex in idle_payload_sequence:
         await device.data_parse(_telemetry(payload_hex))
 
-    assert device.battery_power == 0
-    assert device.grid_power == 0
-    assert device.load_from_battery == 0
-    assert device.load_from_grid == 887
+    assert device.pack_battery_power == 0
+    assert device.pack_grid_power == 0
+    assert device.pack_load_from_battery == 0
+    assert device.pack_load_from_grid == 887
 
 
 @pytest.mark.parametrize(
@@ -248,8 +246,8 @@ async def test_stream_5000_reads_the_same_telemetry(mocker, idle_payload_sequenc
     await device.data_parse(_telemetry(idle_payload_sequence[2]))
 
     assert device.device == "STREAM 5000"
-    assert device.battery_level == 58
-    assert device.house_grid_power == 887
+    assert device.pack_battery_level == 58
+    assert device.pack_house_grid_power == 887
 
 
 @pytest.mark.parametrize("own_first", [True, False])
@@ -271,9 +269,9 @@ async def test_stream_ac_5000_reads_only_its_own_entry_of_a_pack(device, own_fir
 
     device.update_from_message(message)
 
-    assert device.battery_power == 0.0
-    assert device.battery_ac_output_power == 0.0
-    assert device.grid_power == 0.0
+    assert device.unit_battery_power == 0.0
+    assert device.unit_battery_ac_output_power == 0.0
+    assert device.unit_grid_power == 0.0
 
 
 async def test_stream_ac_5000_reads_its_role_in_the_pack(device):
@@ -282,7 +280,7 @@ async def test_stream_ac_5000_reads_its_role_in_the_pack(device):
     await device.data_parse(_telemetry("da01022002"))
 
     assert device.system_role == SystemRole.SLAVE
-    assert device.system_unit_count == 2
+    assert device.pack_unit_count == 2
 
 
 async def test_stream_5000_reports_each_solar_input(mocker):
@@ -315,24 +313,24 @@ async def test_stream_ac_5000_exact_values_from_known_packets(
     await device.data_parse(await device.packet_parse(bytes.fromhex(routed_frame)))
 
     expected = {
-        Device.battery_level: 2,
+        Device.pack_battery_level: 2,
         Device.battery_level_main: 2,
-        Device.battery_power: 997.72,
-        Device.battery_ac_input_power: 1002.79,
-        Device.battery_ac_output_power: 0.0,
-        Device.grid_power: -1002.79,
-        Device.house_grid_power: 1202,
+        Device.unit_battery_power: 997.72,
+        Device.unit_battery_ac_input_power: 1002.79,
+        Device.unit_battery_ac_output_power: 0.0,
+        Device.unit_grid_power: -1002.79,
+        Device.pack_house_grid_power: 1202,
         Device.backup_port_power: 0,
-        Device.load_system: 200,
-        Device.load_from_battery: 0,
-        Device.load_from_grid: 200,
+        Device.pack_load_system: 200,
+        Device.pack_load_from_battery: 0,
+        Device.pack_load_from_grid: 200,
         Device.cell_temperature: 40,
         Device.remaining_time_charging: 368,
         Device.remaining_time_discharging: 5939,
-        Device.battery_charge_limit_max: 100,
-        Device.battery_charge_limit_min: 0,
-        Device.energy_backup: False,
-        Device.energy_backup_battery_level: 40,
+        Device.pack_battery_charge_limit_max: 100,
+        Device.pack_battery_charge_limit_min: 0,
+        Device.pack_energy_backup: False,
+        Device.pack_energy_backup_battery_level: 40,
         Device.ac_ports: True,
     }
 
