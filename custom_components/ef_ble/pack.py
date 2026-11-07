@@ -13,6 +13,7 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.event import async_call_later
 
 from .const import (
+    CONF_PACK_DEFAULTS_APPLIED,
     CONF_PACK_ID,
     CONF_PACK_REPORT_INTERVAL,
     CONF_PACK_SERIAL,
@@ -22,7 +23,13 @@ from .const import (
 )
 from .eflib import DeviceBase
 from .eflib.devices import stream_ac_5000
-from .eflib.pack import DEFAULT_REPORT_INTERVAL, PACK_KEYS, Pack, StandbyLimits
+from .eflib.pack import (
+    DEFAULT_REPORT_INTERVAL,
+    PACK_KEYS,
+    PACK_KEYS_OFF_BY_DEFAULT,
+    Pack,
+    StandbyLimits,
+)
 from .registry import async_get_device
 
 PACK_PLATFORMS: list[Platform] = [
@@ -232,6 +239,27 @@ def _async_link_units(hass: HomeAssistant, entry: ConfigEntry, pack: Pack) -> No
             )
 
 
+def _async_apply_defaults_once(
+    hass: HomeAssistant, entry: ConfigEntry, pack: Pack
+) -> None:
+    """Disable what existed before these defaults, leaving the owner's later choice be"""
+    if entry.data.get(CONF_PACK_DEFAULTS_APPLIED):
+        return
+
+    registry = er.async_get(hass)
+    for key in PACK_KEYS_OFF_BY_DEFAULT:
+        entity_id = registry.async_get_entity_id(
+            Platform.SENSOR, DOMAIN, f"ef_{pack.serial_number}_{key}"
+        )
+        if entity_id is not None:
+            registry.async_update_entity(
+                entity_id, disabled_by=er.RegistryEntryDisabler.INTEGRATION
+            )
+    hass.config_entries.async_update_entry(
+        entry, data={**entry.data, CONF_PACK_DEFAULTS_APPLIED: True}
+    )
+
+
 def _pack_entry(hass: HomeAssistant, pack_id: str) -> ConfigEntry | None:
     for entry in hass.config_entries.async_entries(DOMAIN):
         if is_pack_entry(entry) and entry.data[CONF_PACK_ID] == pack_id:
@@ -270,6 +298,7 @@ async def async_setup_pack_entry(hass: HomeAssistant, entry: ConfigEntry) -> boo
     await hass.config_entries.async_forward_entry_setups(entry, PACK_PLATFORMS)
     _async_remove_unit_duplicates(hass, pack)
     _async_link_units(hass, entry, pack)
+    _async_apply_defaults_once(hass, entry, pack)
 
     # Entities reach the registry after this returns, and a unit's device with them
     @callback

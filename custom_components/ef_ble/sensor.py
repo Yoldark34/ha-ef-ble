@@ -46,7 +46,7 @@ from .eflib.devices import (
     wave3,
 )
 from .eflib.entity import units
-from .eflib.pack import Pack, PackStatus, PackUnit
+from .eflib.pack import PACK_KEYS_OFF_BY_DEFAULT, Pack, PackStatus, PackUnit
 from .eflib.props.enums import IntFieldValue
 from .entity import (
     DeviceNamedEntity,
@@ -1125,6 +1125,12 @@ class EcoflowSensor(EcoflowEntity, SensorEntity):
         self._register_update_callback(None, sensor)
         for attribute_field in self._attribute_fields:
             self._register_update_callback(None, attribute_field)
+
+    @property
+    def entity_registry_enabled_default(self) -> bool:
+        if isinstance(self._device, Pack) and self._sensor in PACK_KEYS_OFF_BY_DEFAULT:
+            return False
+        return super().entity_registry_enabled_default
 
     @property
     def native_value(self):

@@ -80,6 +80,12 @@ class PackStatus(IntFieldValue):
     READY = 3
 
 
+# These mostly repeat another sensor of the pack, so they start disabled
+PACK_KEYS_OFF_BY_DEFAULT = frozenset(
+    {"grid_power", "load_from_battery", "load_from_grid"}
+)
+
+
 class _VirtualDevice(UpdatableProps):
     """What entities need of a device, for one that is not a connection of its own"""
 
