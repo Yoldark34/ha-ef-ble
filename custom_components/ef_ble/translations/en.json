@@ -1166,6 +1166,16 @@
           "power_supply": "Power Supply",
           "power_storage": "Power Storage"
         }
+      },
+      "work_mode": {
+        "name": "Pack Mode",
+        "state": {
+          "self_consumption": "Self-consumption",
+          "ai_mode": "AI mode",
+          "timer_task": "Schedule",
+          "pou_mode": "Time of use",
+          "emergency_stop": "Emergency stop"
+        }
       }
     },
     "number": {
@@ -1336,6 +1346,9 @@
       },
       "pack_energy_backup": {
         "name": "Pack Backup Reserve"
+      },
+      "pack_standby": {
+        "name": "Pack Standby"
       }
     }
   },

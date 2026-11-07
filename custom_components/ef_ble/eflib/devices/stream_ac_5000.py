@@ -52,6 +52,16 @@ class UnitReport:
     pv_power: tuple[int, int, int, int] | None = None
 
 
+class WorkMode(IntFieldValue):
+    UNKNOWN = -1
+
+    SELF_CONSUMPTION = 0
+    AI_MODE = 1
+    TIMER_TASK = 2
+    POU_MODE = 3
+    EMERGENCY_STOP = 4
+
+
 class SystemRole(IntFieldValue):
     UNKNOWN = -1
 
@@ -82,6 +92,7 @@ class Device(DeviceBase, ProtobufProps):
     # The whole pack, repeated identically by each unit. The `pack_` names keep these off
     # the unit's own device: `eflib.pack.Pack` reads them and owns their entities
     pack_unit_count = pb_field(pb.system_config.system_dev_cnt)
+    pack_work_mode = pb_field(pb.work_mode, WorkMode.from_value)
     pack_battery_level = pb_field(pb.sys_energy_stream_report.bp_soc)
     pack_battery_power = pb_field(pb.sys_energy_stream_report.bp_pwr, ZERO_IF_OMITTED)
     pack_grid_power = pb_field(pb.sys_energy_stream_report.on_grid_pwr, ZERO_IF_OMITTED)
@@ -314,6 +325,14 @@ class Device(DeviceBase, ProtobufProps):
             es22_bkw_pb2.BkwPowerParameterConfig(on_grid_take_power_limit=int(value))
         )
         return True
+
+    async def set_work_mode(self, mode: WorkMode):
+        # Unlike the other settings this one is a plain value in `PropertyCmd`, not a
+        # block, and `action_id` is the number of its field all the same
+        field = es22_bkw_pb2.PropertyCmd.DESCRIPTOR.fields_by_name["work_mode"]
+        message = es22_bkw_pb2.PropertyCmd(action_id=field.number, work_mode=mode.value)
+        packet = self._routing.write_packet(message.SerializeToString())
+        await self.send_packet(packet, raise_on_failure=True)
 
     async def set_report_interval(self, seconds: float):
         # The block is written whole, so the other periods have to go out as they are

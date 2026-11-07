@@ -384,6 +384,12 @@
         "state": {
           "off": "mdi:battery-sync-outline"
         }
+      },
+      "pack_standby": {
+        "default": "mdi:sleep",
+        "state": {
+          "off": "mdi:sleep-off"
+        }
       }
     },
     "select": {
@@ -437,6 +443,9 @@
           "sleep": "mdi:power-sleep",
           "eco": "mdi:leaf"
         }
+      },
+      "work_mode": {
+        "default": "mdi:home-lightning-bolt-outline"
       }
     },
     "number": {

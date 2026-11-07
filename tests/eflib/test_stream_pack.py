@@ -5,8 +5,9 @@ from bleak.exc import BleakError
 from pytest_mock import MockerFixture
 
 from custom_components.ef_ble.eflib.devices import stream_5000, stream_ac_5000
+from custom_components.ef_ble.eflib.devices.stream_ac_5000 import WorkMode
 from custom_components.ef_ble.eflib.exceptions import NotConnectedError
-from custom_components.ef_ble.eflib.pack import Pack, PackStatus
+from custom_components.ef_ble.eflib.pack import Pack, PackStatus, StandbyLimits
 from custom_components.ef_ble.eflib.packet import Packet
 from custom_components.ef_ble.eflib.pb import es22_bkw_pb2
 
@@ -263,6 +264,147 @@ async def test_pack_unit_fails_loudly_when_its_link_is_down(pack, slave):
 
     with pytest.raises(NotConnectedError):
         await pack.units[slave.serial_number].enable_ac_ports(True)
+
+
+def _limits(feed: int, grid_in: int) -> str:
+    message = es22_bkw_pb2.DisplayPropertyUpload()
+    message.power_parameter_config.on_grid_feed_power_limit = feed
+    message.power_parameter_config.on_grid_take_power_limit = grid_in
+    return message.SerializeToString().hex()
+
+
+def _sent_limits(unit) -> list[tuple[int, int]]:
+    sent = []
+    for call in unit._conn.send_packet.await_args_list:
+        command = es22_bkw_pb2.PropertyCmd.FromString(call.args[0].payload)
+        config = command.power_parameter_config
+        sent.append((config.on_grid_feed_power_limit, config.on_grid_take_power_limit))
+    return sent
+
+
+@pytest.fixture
+async def limited_pack(pack, master):
+    await master.data_parse(_telemetry(_limits(900, 3000)))
+    return pack
+
+
+async def test_standby_zeroes_both_limits(limited_pack, master):
+    await limited_pack.enable_pack_standby(True)
+
+    assert limited_pack.pack_standby is True
+    assert _sent_limits(master) == [(0, 0), (0, 0)]
+
+
+async def test_leaving_standby_restores_both_limits(limited_pack, master):
+    await limited_pack.enable_pack_standby(True)
+    await master.data_parse(_telemetry(_limits(0, 0)))
+    master._conn.send_packet.reset_mock()
+
+    await limited_pack.enable_pack_standby(False)
+
+    assert limited_pack.pack_standby is False
+    assert _sent_limits(master) == [(900, 0), (0, 3000)]
+
+
+@pytest.mark.parametrize(
+    "setter", ["set_feed_grid_pow_limit", "set_grid_in_power_limit"]
+)
+async def test_standby_refuses_a_new_limit(limited_pack, master, setter):
+    await limited_pack.enable_pack_standby(True)
+    master._conn.send_packet.reset_mock()
+
+    with pytest.raises(ValueError, match="standby"):
+        await getattr(limited_pack, setter)(500)
+
+    master._conn.send_packet.assert_not_awaited()
+
+
+async def test_standby_ignores_the_reports_sent_before_its_own_write(
+    limited_pack, master
+):
+    await limited_pack.enable_pack_standby(True)
+    master._conn.send_packet.reset_mock()
+
+    await master.data_parse(_telemetry(_limits(900, 3000)))
+
+    assert limited_pack.pack_standby is True
+    assert not limited_pack._tasks
+
+
+async def test_an_outside_change_is_kept_and_only_the_other_limit_comes_back(
+    limited_pack, master
+):
+    await limited_pack.enable_pack_standby(True)
+    await master.data_parse(_telemetry(_limits(0, 0)))
+    master._conn.send_packet.reset_mock()
+
+    await master.data_parse(_telemetry(_limits(500, 0)))
+    await asyncio.gather(*limited_pack._tasks)
+
+    assert limited_pack.pack_standby is False
+    assert _sent_limits(master) == [(0, 3000)]
+
+
+async def test_a_change_of_both_limits_ends_standby_without_writing(
+    limited_pack, master
+):
+    await limited_pack.enable_pack_standby(True)
+    await master.data_parse(_telemetry(_limits(0, 0)))
+    master._conn.send_packet.reset_mock()
+
+    await master.data_parse(_telemetry(_limits(500, 2000)))
+    await asyncio.gather(*limited_pack._tasks)
+
+    assert limited_pack.pack_standby is False
+    master._conn.send_packet.assert_not_awaited()
+
+
+async def test_standby_puts_the_limits_back_when_it_can_not_finish(
+    limited_pack, master, slave
+):
+    gone = NotConnectedError("gone")
+    master._conn.send_packet.side_effect = [None, gone, None, None]
+    slave._conn.send_packet.side_effect = [gone]
+
+    with pytest.raises(NotConnectedError):
+        await limited_pack.enable_pack_standby(True)
+
+    assert limited_pack.pack_standby is False
+    assert _sent_limits(master)[-2:] == [(900, 0), (0, 3000)]
+
+
+async def test_standby_keeps_the_first_error_when_the_limits_can_not_go_back(
+    limited_pack, master, slave
+):
+    master._conn.send_packet.side_effect = NotConnectedError("gone")
+    slave._conn.send_packet.side_effect = NotConnectedError("gone")
+
+    with pytest.raises(NotConnectedError):
+        await limited_pack.enable_pack_standby(True)
+
+    assert limited_pack.pack_standby is False
+
+
+async def test_standby_survives_a_restart(limited_pack, master):
+    limited_pack.restore_standby(StandbyLimits(900, 3000))
+
+    await master.data_parse(_telemetry(_limits(0, 0)))
+    master._conn.send_packet.reset_mock()
+    await limited_pack.enable_pack_standby(False)
+
+    assert _sent_limits(master) == [(900, 0), (0, 3000)]
+
+
+async def test_pack_reads_and_sends_its_work_mode(pack, master, slave):
+    await slave.data_parse(_telemetry("c80102"))
+    assert pack.work_mode is WorkMode.TIMER_TASK
+
+    await pack.set_work_mode(WorkMode.AI_MODE)
+
+    sent = master._conn.send_packet.await_args.args[0]
+    command = es22_bkw_pb2.PropertyCmd.FromString(sent.payload)
+    assert command.action_id == 25
+    assert command.work_mode == WorkMode.AI_MODE.value
 
 
 async def test_pack_command_fails_loudly_when_no_unit_answers(pack, master, slave):

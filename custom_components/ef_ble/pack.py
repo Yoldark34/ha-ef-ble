@@ -1,5 +1,6 @@
 """Home Assistant side of a STREAM pack: its config entry and its members"""
 
+import dataclasses
 import logging
 from collections.abc import Callable
 from datetime import datetime
@@ -15,15 +16,21 @@ from .const import (
     CONF_PACK_ID,
     CONF_PACK_REPORT_INTERVAL,
     CONF_PACK_SERIAL,
+    CONF_PACK_STANDBY,
     CONF_PACK_UNITS,
     DOMAIN,
 )
 from .eflib import DeviceBase
 from .eflib.devices import stream_ac_5000
-from .eflib.pack import DEFAULT_REPORT_INTERVAL, PACK_KEYS, Pack
+from .eflib.pack import DEFAULT_REPORT_INTERVAL, PACK_KEYS, Pack, StandbyLimits
 from .registry import async_get_device
 
-PACK_PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.NUMBER, Platform.SWITCH]
+PACK_PLATFORMS: list[Platform] = [
+    Platform.SENSOR,
+    Platform.NUMBER,
+    Platform.SELECT,
+    Platform.SWITCH,
+]
 
 _PACKS_KEY = f"{DOMAIN}_packs"
 # Every unit used to own this control, so its oldest entity tells which one came first
@@ -246,6 +253,15 @@ async def async_setup_pack_entry(hass: HomeAssistant, entry: ConfigEntry) -> boo
         )
 
     pack.on_report_interval_chosen = remember_report_interval
+
+    @callback
+    def remember_standby(limits: StandbyLimits | None) -> None:
+        data = {**entry.data, CONF_PACK_STANDBY: limits and dataclasses.asdict(limits)}
+        hass.config_entries.async_update_entry(entry, data=data)
+
+    pack.on_standby_changed = remember_standby
+    if saved := entry.data.get(CONF_PACK_STANDBY):
+        pack.restore_standby(StandbyLimits(**saved))
     for serial in entry.data.get(CONF_PACK_UNITS, []):
         pack.known_unit(serial)
     entry.runtime_data = pack
