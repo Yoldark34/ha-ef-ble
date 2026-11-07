@@ -38,7 +38,8 @@ def _first_unit_serial(hass: HomeAssistant, fallback: str) -> str:
     candidates = [
         entity
         for entity in er.async_get(hass).entities.values()
-        if entity.platform == DOMAIN and entity.unique_id.endswith(f"_{_FIRST_UNIT_KEY}")
+        if entity.platform == DOMAIN
+        and entity.unique_id.endswith(f"_{_FIRST_UNIT_KEY}")
     ]
     if not candidates:
         return fallback
@@ -49,7 +50,8 @@ def _first_unit_serial(hass: HomeAssistant, fallback: str) -> str:
 async def _async_ensure_entry(hass: HomeAssistant, pack_id: str, serial: str) -> None:
     unique_id = f"pack_{pack_id}"
     if any(
-        entry.unique_id == unique_id for entry in hass.config_entries.async_entries(DOMAIN)
+        entry.unique_id == unique_id
+        for entry in hass.config_entries.async_entries(DOMAIN)
     ):
         return
 

@@ -17,7 +17,7 @@ from ..props import (
 )
 from ..props.enums import IntFieldValue
 from ..props.protobuf_field import TransformIfMissing
-from ..props.transforms import out_power, pnegative, ppositive, pround
+from ..props.transforms import pnegative, ppositive
 from ..serial_routing import SerialRouting
 
 pb = proto_attr_mapper(es22_bkw_pb2.DisplayPropertyUpload)
@@ -30,15 +30,11 @@ _PROPERTY_BLOCKS = {
     if field.message_type is not None
 }
 
-pb_flow = proto_attr_mapper(es22_bkw_pb2.DevEnergyFlowDetail)
 pb_battery = proto_attr_mapper(es22_bkw_pb2.BatteryInfoItem)
 
 # The device leaves out a reading that is zero, even inside a block it does post, where
 # keeping the previous reading would hold on to a flow that has stopped
 ZERO_IF_OMITTED = TransformIfMissing[int, int](lambda value: value or 0)
-_ROUNDED_OR_ZERO = TransformIfMissing[float, float](
-    lambda value: round(value, 2) if value is not None else 0.0
-)
 
 
 class SystemRole(IntFieldValue):
@@ -88,46 +84,25 @@ class Device(DeviceBase, ProtobufProps):
     pack_energy_backup = pb_field(pb.bp_backup_config.backup_soc_on_off)
     pack_energy_backup_battery_level = pb_field(pb.bp_backup_config.backup_soc)
 
-    # This unit alone: its own entry of the `system_sub_dev_*` blocks, which carry one
-    # per unit, and its own battery report
+    pack_feed_grid_pow_limit = pb_field(
+        pb.power_parameter_config.on_grid_feed_power_limit
+    )
+    pack_feed_grid_pow_max = pb_field(pb.power_parameter_config.on_grid_feed_power_max)
+    pack_grid_in_power_limit = pb_field(
+        pb.power_parameter_config.on_grid_take_power_limit
+    )
+
+    # This unit alone. Every unit posts `dev_energy_stream_report`, where only the master
+    # posts the `system_sub_dev_*` blocks that list each unit
     battery_level_main = repeated_pb_field(
         pb.battery_info_report.battery_info_item,
         pb_battery.soc,
         own_key=pb_battery.sn,
     )
-    unit_battery_power = repeated_pb_field(
-        pb.system_sub_dev_energy_flow_detail.dev_energy_flow_detail,
-        pb_flow.inv_pwr,
-        TransformIfMissing[float, float](
-            lambda value: out_power(value) if value is not None else 0.0
-        ),
-        own_key=pb_flow.dev_sn,
-    )
-    _unit_battery_ac_power = repeated_pb_field(
-        pb.system_sub_dev_energy_flow_detail.dev_energy_flow_detail,
-        pb_flow.bp_pwr,
-        _ROUNDED_OR_ZERO,
-        own_key=pb_flow.dev_sn,
-    )
-    unit_grid_power = repeated_pb_field(
-        pb.system_sub_dev_energy_flow_detail.dev_energy_flow_detail,
-        pb_flow.on_grid_pwr,
-        _ROUNDED_OR_ZERO,
-        own_key=pb_flow.dev_sn,
-    )
-    _backup_pwr = repeated_pb_field(
-        pb.system_sub_dev_energy_flow_detail.dev_energy_flow_detail,
-        pb_flow.backup_pwr,
-        pround(2),
-        own_key=pb_flow.dev_sn,
-    )
-    # No capture carries either of these yet, so reading their absence as zero assumes
-    # they follow the other flows of this block
-    _bp_to_backup = pb_field(
-        pb.energy_flow_from_to_detail.bp_to_backup, ZERO_IF_OMITTED
-    )
-    _grid_to_backup = pb_field(
-        pb.energy_flow_from_to_detail.grid_to_backup, ZERO_IF_OMITTED
+    unit_battery_power = pb_field(pb.dev_energy_stream_report.bp_pwr, ZERO_IF_OMITTED)
+    unit_grid_power = pb_field(pb.dev_energy_stream_report.on_grid_pwr, ZERO_IF_OMITTED)
+    backup_port_power = pb_field(
+        pb.dev_energy_stream_report.backup_pwr, ZERO_IF_OMITTED
     )
 
     remaining_time_charging = pb_field(pb.sys_battery_info_report.charge_remain_time)
@@ -174,19 +149,11 @@ class Device(DeviceBase, ProtobufProps):
 
     @computed_field
     def unit_battery_ac_input_power(self) -> float | None:
-        return ppositive()(self._unit_battery_ac_power)
+        return ppositive()(self.unit_battery_power)
 
     @computed_field
     def unit_battery_ac_output_power(self) -> float | None:
-        return pnegative()(self._unit_battery_ac_power)
-
-    @computed_field
-    def backup_port_power(self) -> float | None:
-        if self._backup_pwr is not None:
-            return self._backup_pwr
-        if self._bp_to_backup is None and self._grid_to_backup is None:
-            return None
-        return (self._bp_to_backup or 0) + (self._grid_to_backup or 0)
+        return pnegative()(self.unit_battery_power)
 
     async def packet_parse(self, data: bytes):
         return Packet.from_bytes(data, xor_payload=True)
@@ -255,6 +222,18 @@ class Device(DeviceBase, ProtobufProps):
 
     async def set_energy_backup_battery_level(self, value: float):
         await self._write_property(es22_bkw_pb2.BpBackupConfig(backup_soc=int(value)))
+        return True
+
+    async def set_feed_grid_pow_limit(self, value: float):
+        await self._write_property(
+            es22_bkw_pb2.BkwPowerParameterConfig(on_grid_feed_power_limit=int(value))
+        )
+        return True
+
+    async def set_grid_in_power_limit(self, value: float):
+        await self._write_property(
+            es22_bkw_pb2.BkwPowerParameterConfig(on_grid_take_power_limit=int(value))
+        )
         return True
 
     async def enable_energy_backup(self, enabled: bool):

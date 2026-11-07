@@ -34,7 +34,13 @@ _MEMBER_FIELDS = {
     "pack_energy_backup": "energy_backup",
     "pack_energy_backup_battery_level": "energy_backup_battery_level",
     "pack_unit_count": "system_unit_count",
+    "pack_feed_grid_pow_limit": "feed_grid_pow_limit",
+    "pack_feed_grid_pow_max": "feed_grid_pow_max",
+    "pack_grid_in_power_limit": "grid_in_power_limit",
 }
+
+# What the app reports as the pack's charging limit, with no higher value on offer
+_GRID_IN_POWER_MAX = 3000
 
 # Keys the pack owns, so a member must not keep an entity of its own for them
 PACK_KEYS = frozenset(
@@ -61,6 +67,9 @@ class Pack(UpdatableProps):
     energy_backup = Field[bool]()
     energy_backup_battery_level = Field[int]()
     system_unit_count = Field[int]()
+    feed_grid_pow_limit = Field[int]()
+    feed_grid_pow_max = Field[int]()
+    grid_in_power_limit = Field[int]()
 
     def __init__(self, pack_id: str, serial_number: str = "") -> None:
         super().__init__()
@@ -198,6 +207,16 @@ class Pack(UpdatableProps):
     )
     async def set_energy_backup_battery_level(self, value: float):
         await self._command("set_energy_backup_battery_level", value)
+        return True
+
+    @controls.power(feed_grid_pow_limit, max=dynamic(feed_grid_pow_max))
+    async def set_feed_grid_pow_limit(self, value: float):
+        await self._command("set_feed_grid_pow_limit", value)
+        return True
+
+    @controls.power(grid_in_power_limit, max=_GRID_IN_POWER_MAX)
+    async def set_grid_in_power_limit(self, value: float):
+        await self._command("set_grid_in_power_limit", value)
         return True
 
     @controls.switch(energy_backup)

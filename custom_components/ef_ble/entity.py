@@ -7,6 +7,7 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH, DeviceInfo
 from homeassistant.helpers.entity import Entity, EntityDescription
 from homeassistant.helpers.restore_state import ExtraStoredData, RestoreEntity
+from homeassistant.loader import async_get_loaded_integration
 
 from .const import DOMAIN, MANUFACTURER
 from .eflib import DeviceBase
@@ -24,6 +25,10 @@ class EcoflowEntity(Entity):
         self._write_state_props: list[str] = []
 
     @property
+    def _integration_version(self) -> str:
+        return f"EcoFlow BLE {async_get_loaded_integration(self.hass, DOMAIN).version}"
+
+    @property
     def device_info(self):
         """Return information to link this entity with the correct device"""
         if isinstance(self._device, Pack):
@@ -32,6 +37,7 @@ class EcoflowEntity(Entity):
                 name=self._device.name,
                 manufacturer=MANUFACTURER,
                 model=self._device.device,
+                sw_version=self._integration_version,
             )
 
         return DeviceInfo(
@@ -45,6 +51,7 @@ class EcoflowEntity(Entity):
             manufacturer=MANUFACTURER,
             model=self._device.device,
             serial_number=self._device.serial_number,
+            sw_version=self._integration_version,
         )
 
     @property

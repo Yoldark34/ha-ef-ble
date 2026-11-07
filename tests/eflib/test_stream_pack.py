@@ -4,8 +4,8 @@ from pytest_mock import MockerFixture
 
 from custom_components.ef_ble.eflib.devices import stream_5000, stream_ac_5000
 from custom_components.ef_ble.eflib.exceptions import NotConnectedError
-from custom_components.ef_ble.eflib.packet import Packet
 from custom_components.ef_ble.eflib.pack import Pack
+from custom_components.ef_ble.eflib.packet import Packet
 
 MASTER = "da01021001"
 SLAVE = "da01021002"
@@ -91,6 +91,14 @@ async def test_pack_follows_a_change_of_master(pack, master, slave):
 
     slave._conn.send_packet.assert_awaited_once()
     master._conn.send_packet.assert_not_awaited()
+
+
+async def test_pack_sends_its_power_limits_to_the_master(pack, master, slave):
+    await pack.set_grid_in_power_limit(2000)
+    await pack.set_feed_grid_pow_limit(600)
+
+    assert master._conn.send_packet.await_count == 2
+    slave._conn.send_packet.assert_not_awaited()
 
 
 async def test_pack_command_fails_loudly_when_no_unit_answers(pack, master, slave):

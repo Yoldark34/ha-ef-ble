@@ -85,9 +85,9 @@ async def test_stream_ac_5000_reports_battery_power_negative_while_discharging(
     processed = await device.data_parse(_telemetry(payload_sequence[0]))
 
     assert processed is True
-    assert device.unit_battery_power == pytest.approx(-311.43)
-    assert device.unit_battery_ac_input_power == 0.0
-    assert device.unit_battery_ac_output_power == pytest.approx(300.32)
+    assert device.unit_battery_power == -300
+    assert device.unit_battery_ac_input_power == 0
+    assert device.unit_battery_ac_output_power == 300
     assert device.pack_load_from_battery == 300
     assert device.backup_port_power == 0
 
@@ -98,23 +98,8 @@ async def test_stream_ac_5000_reports_battery_power_positive_while_charging(
     processed = await device.data_parse(_telemetry(payload_sequence[2]))
 
     assert processed is True
-    assert device.unit_battery_power == pytest.approx(193.16)
-    assert device.unit_battery_ac_input_power == pytest.approx(201.75)
-    assert device.unit_battery_ac_output_power == 0.0
+    assert device.pack_battery_power == 202
     assert device.pack_battery_level == 13
-
-
-async def test_stream_ac_5000_prefers_the_power_block_for_backup_port_power(device):
-    # no capture carries `backup_pwr`, so only a built message reaches this branch
-    message = es22_bkw_pb2.DisplayPropertyUpload()
-    message.system_sub_dev_energy_flow_detail.dev_energy_flow_detail.add(
-        dev_sn=device.serial_number, backup_pwr=431.47
-    )
-    message.energy_flow_from_to_detail.bp_to_load = 1212
-
-    device.update_from_message(message)
-
-    assert device.backup_port_power == pytest.approx(431.47)
 
 
 async def test_stream_ac_5000_ignores_packets_from_other_modules(device):
@@ -158,24 +143,6 @@ async def test_stream_ac_5000_routed_frame_round_trips(routed_frame):
 
     assert isinstance(packet, PacketV4)
     assert packet.to_bytes() == original
-
-
-async def test_stream_ac_5000_zeroes_battery_power_when_the_entry_omits_it(device):
-    # every captured entry reports `inv_pwr`, so the omission has to be built
-    reported = es22_bkw_pb2.DisplayPropertyUpload()
-    reported.system_sub_dev_energy_flow_detail.dev_energy_flow_detail.add(
-        dev_sn=device.serial_number, inv_pwr=-311.43
-    )
-    device.update_from_message(reported)
-
-    omitted = es22_bkw_pb2.DisplayPropertyUpload()
-    omitted.system_sub_dev_energy_flow_detail.dev_energy_flow_detail.add(
-        dev_sn=device.serial_number, on_grid_pwr=10.0
-    )
-    device.update_from_message(omitted)
-
-    assert device.unit_battery_power == 0.0
-    assert device.unit_grid_power == 10.0
 
 
 async def test_stream_ac_5000_reads_the_stream_report_when_sub_dev_blocks_are_empty(
@@ -250,30 +217,6 @@ async def test_stream_5000_reads_the_same_telemetry(mocker, idle_payload_sequenc
     assert device.pack_house_grid_power == 887
 
 
-@pytest.mark.parametrize("own_first", [True, False])
-async def test_stream_ac_5000_reads_only_its_own_entry_of_a_pack(device, own_first):
-    # the shape of a real pack post: the other unit working, this one idle
-    entries = [
-        {"dev_sn": device.serial_number, "dev_soc": 59.0, "on_grid_state": 2},
-        {
-            "dev_sn": "ES21XXXXXXXXX180",
-            "dev_soc": 58.0,
-            "bp_pwr": -106.0,
-            "inv_pwr": 112.0,
-            "on_grid_pwr": 106.0,
-        },
-    ]
-    message = es22_bkw_pb2.DisplayPropertyUpload()
-    for entry in entries if own_first else reversed(entries):
-        message.system_sub_dev_energy_flow_detail.dev_energy_flow_detail.add(**entry)
-
-    device.update_from_message(message)
-
-    assert device.unit_battery_power == 0.0
-    assert device.unit_battery_ac_output_power == 0.0
-    assert device.unit_grid_power == 0.0
-
-
 async def test_stream_ac_5000_reads_its_role_in_the_pack(device):
     # role and unit count, as they arrive in two separate posts
     await device.data_parse(_telemetry("da010410021801"))
@@ -315,10 +258,10 @@ async def test_stream_ac_5000_exact_values_from_known_packets(
     expected = {
         Device.pack_battery_level: 2,
         Device.battery_level_main: 2,
-        Device.unit_battery_power: 997.72,
-        Device.unit_battery_ac_input_power: 1002.79,
-        Device.unit_battery_ac_output_power: 0.0,
-        Device.unit_grid_power: -1002.79,
+        Device.unit_battery_power: 1002,
+        Device.unit_battery_ac_input_power: 1002,
+        Device.unit_battery_ac_output_power: 0,
+        Device.unit_grid_power: -1002,
         Device.pack_house_grid_power: 1202,
         Device.backup_port_power: 0,
         Device.pack_load_system: 200,
