@@ -1,3 +1,4 @@
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import ClassVar
@@ -6,6 +7,7 @@ from bleak.backends.device import BLEDevice
 from bleak.backends.scanner import AdvertisementData
 from google.protobuf.message import Message
 
+from ..connection import ConnectionState
 from ..devicebase import DeviceBase
 from ..packet import Packet, PacketV4
 from ..pb import es22_bkw_pb2
@@ -81,6 +83,12 @@ class Device(DeviceBase, ProtobufProps):
     _WRITE_CMD_SET: ClassVar[int] = 0xFE
     _WRITE_CMD_ID: ClassVar[int] = 0x26
     _SYSTEM_MODULE: ClassVar[int] = 0x02
+
+    # A unit sends several frames a second while its link is up and its telemetry at
+    # least every two minutes, so this long without a frame means the link is dead even
+    # though BlueZ still reports it connected, and nothing else would notice
+    _SILENCE_LIMIT: ClassVar[float] = 300
+    _SILENCE_CHECK_INTERVAL: ClassVar[float] = 60
 
     # The `own_` fields are this unit's alone and the master does not relay them, so
     # they need this unit's link. `eflib.pack.PackUnit` reads them and owns their entities
@@ -164,6 +172,11 @@ class Device(DeviceBase, ProtobufProps):
             sequenced_writes=True,
         )
         self._unit_report_listeners: list[Callable[[UnitReport], None]] = []
+        self._last_frame_at = time.monotonic()
+        self.on_connection_state_change(self._restart_silence_clock)
+        self.add_timer_task(
+            self._drop_silent_link, interval=self._SILENCE_CHECK_INTERVAL
+        )
 
     @classmethod
     def check(cls, sn):
@@ -183,7 +196,22 @@ class Device(DeviceBase, ProtobufProps):
     async def packet_parse(self, data: bytes):
         return Packet.from_bytes(data, xor_payload=True)
 
+    def _restart_silence_clock(self, state: ConnectionState) -> None:
+        if state.authenticated:
+            self._last_frame_at = time.monotonic()
+
+    async def _drop_silent_link(self) -> None:
+        silent_for = time.monotonic() - self._last_frame_at
+        if silent_for < self._SILENCE_LIMIT or self._conn is None:
+            return
+        self._logger.warning(
+            "No frame from the device for %d s, dropping the link to reconnect",
+            silent_for,
+        )
+        self._conn.disconnected()
+
     async def data_parse(self, packet: Packet) -> bool:
+        self._last_frame_at = time.monotonic()
         processed = False
         self.reset_updated()
 

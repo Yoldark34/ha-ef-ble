@@ -302,3 +302,23 @@ async def test_stream_ac_5000_exact_values_from_known_packets(
         assert actual_value == expected_value, (
             f"{field.public_name}: expected {expected_value}, got {actual_value}"
         )
+
+
+@pytest.mark.parametrize(
+    ("silent_for", "dropped"),
+    [(Device._SILENCE_LIMIT - 1, False), (Device._SILENCE_LIMIT + 1, True)],
+)
+async def test_stream_ac_5000_drops_a_link_that_has_gone_silent(
+    mocker: MockerFixture, device, silent_for, dropped
+):
+    device._conn = mocker.Mock()
+    clock = mocker.patch(
+        "custom_components.ef_ble.eflib.devices.stream_ac_5000.time.monotonic",
+        return_value=1000.0,
+    )
+    await device.data_parse(_telemetry("da01022002"))
+
+    clock.return_value += silent_for
+    await device._drop_silent_link()
+
+    assert device._conn.disconnected.called is dropped
