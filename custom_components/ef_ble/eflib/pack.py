@@ -445,9 +445,10 @@ class Pack(_VirtualDevice):
             self._standby_confirmed = limits == (0, 0)
             return
         if limits != (0, 0):
+            # Whoever changed them chose what the pack does now, so nothing is written
+            # back: only turning standby off in Home Assistant restores the old values
             _LOGGER.debug("Limits changed outside of standby, leaving it")
-            self._standby_confirmed = False
-            self._spawn(self._leave_standby_after_outside_change())
+            self._set_standby(None)
 
     def _spawn(self, coroutine: Coroutine[Any, Any, Any]) -> None:
         task = asyncio.create_task(coroutine)
@@ -583,17 +584,6 @@ class Pack(_VirtualDevice):
             await self._put_limits_back(limits)
             raise
         self._set_standby(limits)
-
-    async def _leave_standby_after_outside_change(self) -> None:
-        # What someone else set stands, so only a limit still at zero gets its value back
-        limits = self._standby_limits
-        if limits is None:
-            return
-        if self.feed_grid_pow_limit == 0:
-            await self._command("set_feed_grid_pow_limit", limits.feed_grid_pow_limit)
-        if self.grid_in_power_limit == 0:
-            await self._command("set_grid_in_power_limit", limits.grid_in_power_limit)
-        self._set_standby(None)
 
     async def _put_limits_back(self, limits: StandbyLimits) -> None:
         try:

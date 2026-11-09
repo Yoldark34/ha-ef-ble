@@ -331,29 +331,16 @@ async def test_standby_ignores_the_reports_sent_before_its_own_write(
     assert not limited_pack._tasks
 
 
-async def test_an_outside_change_is_kept_and_only_the_other_limit_comes_back(
-    limited_pack, master
+@pytest.mark.parametrize("outside", [(500, 0), (0, 2000), (500, 2000)])
+async def test_an_outside_change_ends_standby_without_writing(
+    limited_pack, master, outside
 ):
     await limited_pack.enable_pack_standby(True)
     await master.data_parse(_telemetry(_limits(0, 0)))
     master._conn.send_packet.reset_mock()
 
-    await master.data_parse(_telemetry(_limits(500, 0)))
-    await asyncio.gather(*limited_pack._tasks)
-
-    assert limited_pack.pack_standby is False
-    assert _sent_limits(master) == [(0, 3000)]
-
-
-async def test_a_change_of_both_limits_ends_standby_without_writing(
-    limited_pack, master
-):
-    await limited_pack.enable_pack_standby(True)
-    await master.data_parse(_telemetry(_limits(0, 0)))
-    master._conn.send_packet.reset_mock()
-
-    await master.data_parse(_telemetry(_limits(500, 2000)))
-    await asyncio.gather(*limited_pack._tasks)
+    await master.data_parse(_telemetry(_limits(*outside)))
+    await limited_pack.enable_pack_standby(False)
 
     assert limited_pack.pack_standby is False
     master._conn.send_packet.assert_not_awaited()
@@ -396,12 +383,12 @@ async def test_standby_survives_the_first_report_after_a_restart(pack, master):
     master._conn.send_packet.assert_not_awaited()
 
 
-async def test_standby_survives_a_restart(limited_pack, master):
-    limited_pack.restore_standby(StandbyLimits(900, 3000))
+async def test_standby_survives_a_restart(pack, master):
+    pack.restore_standby(StandbyLimits(900, 3000))
 
     await master.data_parse(_telemetry(_limits(0, 0)))
     master._conn.send_packet.reset_mock()
-    await limited_pack.enable_pack_standby(False)
+    await pack.enable_pack_standby(False)
 
     assert _sent_limits(master) == [(900, 0), (0, 3000)]
 
