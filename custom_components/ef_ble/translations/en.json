@@ -1293,6 +1293,12 @@
       "ac_ports": {
         "name": "AC Ports"
       },
+      "xboost": {
+        "name": "X-Boost"
+      },
+      "ups": {
+        "name": "UPS"
+      },
       "ac_charging": {
         "name": "AC Charging"
       },

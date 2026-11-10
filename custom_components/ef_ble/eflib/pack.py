@@ -57,6 +57,8 @@ _MEMBER_UNIT_FIELDS = {
     "own_battery_full_capacity": "battery_full_capacity",
     "own_battery_remaining_energy": "battery_remaining_energy",
     "own_ac_ports": "ac_ports",
+    "own_xboost": "xboost",
+    "own_ups": "ups",
     "own_cell_temperature": "cell_temperature",
     "own_system_role": "system_role",
 }
@@ -151,6 +153,8 @@ class PackUnit(_VirtualDevice):
     battery_full_capacity = Field[int]()
     battery_remaining_energy = Field[int]()
     ac_ports = Field[bool]()
+    xboost = Field[bool]()
+    ups = Field[bool]()
     cell_temperature = Field[int]()
     system_role = Field[Any]()
 
@@ -193,6 +197,14 @@ class PackUnit(_VirtualDevice):
     @controls.outlet(ac_ports)
     async def enable_ac_ports(self, enabled: bool):
         await self._pack.send_to_unit(self.serial_number, "enable_ac_ports", enabled)
+
+    @controls.switch(xboost)
+    async def enable_xboost(self, enabled: bool):
+        await self._pack.send_to_unit(self.serial_number, "enable_xboost", enabled)
+
+    @controls.switch(ups)
+    async def enable_ups(self, enabled: bool):
+        await self._pack.send_to_unit(self.serial_number, "enable_ups", enabled)
 
     def update_field(self, name: str, value: Any) -> None:
         if value is None:

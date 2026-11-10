@@ -152,6 +152,10 @@ class Device(DeviceBase, ProtobufProps):
     own_battery_full_capacity = pb_field(pb.sys_battery_info_report.full_cap)
     own_battery_remaining_energy = pb_field(pb.sys_battery_info_report.remain_cap)
     own_ac_ports = pb_field(pb.dev_switch.ac_socket_onoff)
+    # X-Boost and UPS live in `SysDevInfo` (fields 5/6), which the device also reports in
+    # `DisplayPropertyUpload`, so each reads back as well as it writes
+    own_xboost = pb_field(pb.sys_dev_info.x_boost_on_off)
+    own_ups = pb_field(pb.sys_dev_info.ups_on_off)
 
     own_cell_temperature = repeated_pb_field(
         pb.battery_info_report.battery_info_item,
@@ -396,3 +400,11 @@ class Device(DeviceBase, ProtobufProps):
 
     async def enable_ac_ports(self, enabled: bool):
         await self._write_property(es22_bkw_pb2.DevSwitch(ac_socket_onoff=enabled))
+
+    async def enable_xboost(self, enabled: bool):
+        # `SysDevInfo` carries the app's clock in fields 1/2; writing only the toggle
+        # leaves those untouched, which is what the app does
+        await self._write_property(es22_bkw_pb2.SysDevInfo(x_boost_on_off=enabled))
+
+    async def enable_ups(self, enabled: bool):
+        await self._write_property(es22_bkw_pb2.SysDevInfo(ups_on_off=enabled))
