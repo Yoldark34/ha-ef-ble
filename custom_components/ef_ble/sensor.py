@@ -502,6 +502,17 @@ _SENSORS: Final[dict[str, SensorEntityDescription]] = {
     "remaining_time_charging": duration(enabled=False),
     "remaining_time_discharging": duration(enabled=False),
     "total_energy": energy(),
+    # STREAM pack house grid meter, per phase (B/C off by default for single-phase sites)
+    "meter_total_power": power(precision=1),
+    "meter_phase_a_power": power(precision=1),
+    "meter_phase_b_power": power(precision=1, enabled=False),
+    "meter_phase_c_power": power(precision=1, enabled=False),
+    "meter_phase_a_voltage": voltage(precision=1),
+    "meter_phase_b_voltage": voltage(precision=1, enabled=False),
+    "meter_phase_c_voltage": voltage(precision=1, enabled=False),
+    "meter_phase_a_current": current(precision=2),
+    "meter_phase_b_current": current(precision=2, enabled=False),
+    "meter_phase_c_current": current(precision=2, enabled=False),
     # SHP2
     "grid_power": power(precision=1),
     "house_grid_power": power(precision=0),

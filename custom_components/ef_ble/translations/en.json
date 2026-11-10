@@ -495,6 +495,36 @@
       "house_grid_power": {
         "name": "House Grid Power"
       },
+      "meter_total_power": {
+        "name": "Meter Total Power"
+      },
+      "meter_phase_a_power": {
+        "name": "Meter Phase A Power"
+      },
+      "meter_phase_b_power": {
+        "name": "Meter Phase B Power"
+      },
+      "meter_phase_c_power": {
+        "name": "Meter Phase C Power"
+      },
+      "meter_phase_a_voltage": {
+        "name": "Meter Phase A Voltage"
+      },
+      "meter_phase_b_voltage": {
+        "name": "Meter Phase B Voltage"
+      },
+      "meter_phase_c_voltage": {
+        "name": "Meter Phase C Voltage"
+      },
+      "meter_phase_a_current": {
+        "name": "Meter Phase A Current"
+      },
+      "meter_phase_b_current": {
+        "name": "Meter Phase B Current"
+      },
+      "meter_phase_c_current": {
+        "name": "Meter Phase C Current"
+      },
       "backup_port_power": {
         "name": "Backup Port Power"
       },

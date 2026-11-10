@@ -44,6 +44,16 @@ _MEMBER_FIELDS = {
     "pack_grid_in_power_limit": "grid_in_power_limit",
     "pack_report_interval": "report_interval",
     "pack_work_mode": "work_mode",
+    "pack_meter_total_power": "meter_total_power",
+    "pack_meter_phase_a_power": "meter_phase_a_power",
+    "pack_meter_phase_b_power": "meter_phase_b_power",
+    "pack_meter_phase_c_power": "meter_phase_c_power",
+    "pack_meter_phase_a_voltage": "meter_phase_a_voltage",
+    "pack_meter_phase_b_voltage": "meter_phase_b_voltage",
+    "pack_meter_phase_c_voltage": "meter_phase_c_voltage",
+    "pack_meter_phase_a_current": "meter_phase_a_current",
+    "pack_meter_phase_b_current": "meter_phase_b_current",
+    "pack_meter_phase_c_current": "meter_phase_c_current",
 }
 
 # What the app reports as the pack's charging limit, with no higher value on offer
@@ -268,6 +278,16 @@ class Pack(_VirtualDevice):
     load_system = Field[int]()
     load_from_battery = Field[int]()
     load_from_grid = Field[int]()
+    meter_total_power = Field[float]()
+    meter_phase_a_power = Field[float]()
+    meter_phase_b_power = Field[float]()
+    meter_phase_c_power = Field[float]()
+    meter_phase_a_voltage = Field[float]()
+    meter_phase_b_voltage = Field[float]()
+    meter_phase_c_voltage = Field[float]()
+    meter_phase_a_current = Field[float]()
+    meter_phase_b_current = Field[float]()
+    meter_phase_c_current = Field[float]()
     battery_charge_limit_max = Field[int]()
     battery_charge_limit_min = Field[int]()
     energy_backup = Field[bool]()

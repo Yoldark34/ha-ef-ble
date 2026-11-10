@@ -116,6 +116,20 @@ class Device(DeviceBase, ProtobufProps):
     pack_load_from_grid = pb_field(
         pb.energy_flow_from_to_detail.grid_to_load, ZERO_IF_OMITTED
     )
+    # The house grid meter (a wireless Smart Meter) as the pack relays it in `local_meter`,
+    # which the pack sees whole, so these carry it onto the pack device. Per-phase power and
+    # current are left out of a post when zero, so a single-phase site reads 0 rather than
+    # going unavailable; voltage posts on every connected phase
+    pack_meter_total_power = pb_field(pb.local_meter.total_pwr)
+    pack_meter_phase_a_power = pb_field(pb.local_meter.phase_a_power, ZERO_IF_OMITTED)
+    pack_meter_phase_b_power = pb_field(pb.local_meter.phase_b_power, ZERO_IF_OMITTED)
+    pack_meter_phase_c_power = pb_field(pb.local_meter.phase_c_power, ZERO_IF_OMITTED)
+    pack_meter_phase_a_voltage = pb_field(pb.local_meter.phase_a_voltage)
+    pack_meter_phase_b_voltage = pb_field(pb.local_meter.phase_b_voltage)
+    pack_meter_phase_c_voltage = pb_field(pb.local_meter.phase_c_voltage)
+    pack_meter_phase_a_current = pb_field(pb.local_meter.phase_a_current, ZERO_IF_OMITTED)
+    pack_meter_phase_b_current = pb_field(pb.local_meter.phase_b_current, ZERO_IF_OMITTED)
+    pack_meter_phase_c_current = pb_field(pb.local_meter.phase_c_current, ZERO_IF_OMITTED)
     pack_battery_charge_limit_max = pb_field(pb.bp_soc_config.charge_soc_upper_limit)
     pack_battery_charge_limit_min = pb_field(pb.bp_soc_config.discharge_soc_lower_limit)
     pack_energy_backup = pb_field(pb.bp_backup_config.backup_soc_on_off)
