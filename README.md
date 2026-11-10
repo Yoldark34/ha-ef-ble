@@ -505,6 +505,8 @@ each battery under it. See the
 **Battery controls**
 
 - AC ports
+- X-Boost
+- UPS
 
 </details>
 
