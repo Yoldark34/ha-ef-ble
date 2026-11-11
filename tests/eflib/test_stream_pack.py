@@ -7,7 +7,7 @@ from pytest_mock import MockerFixture
 from custom_components.ef_ble.eflib.devices import stream_5000, stream_ac_5000
 from custom_components.ef_ble.eflib.devices.stream_ac_5000 import WorkMode
 from custom_components.ef_ble.eflib.exceptions import NotConnectedError
-from custom_components.ef_ble.eflib.pack import Pack, PackStatus, StandbyLimits
+from custom_components.ef_ble.eflib.pack import Pack, PackStatus
 from custom_components.ef_ble.eflib.packet import Packet
 from custom_components.ef_ble.eflib.pb import es22_bkw_pb2
 
@@ -273,124 +273,10 @@ def _limits(feed: int, grid_in: int) -> str:
     return message.SerializeToString().hex()
 
 
-def _sent_limits(unit) -> list[tuple[int, int]]:
-    sent = []
-    for call in unit._conn.send_packet.await_args_list:
-        command = es22_bkw_pb2.PropertyCmd.FromString(call.args[0].payload)
-        config = command.power_parameter_config
-        sent.append((config.on_grid_feed_power_limit, config.on_grid_take_power_limit))
-    return sent
-
-
 @pytest.fixture
 async def limited_pack(pack, master):
     await master.data_parse(_telemetry(_limits(900, 3000)))
     return pack
-
-
-async def test_standby_zeroes_both_limits(limited_pack, master):
-    await limited_pack.enable_pack_standby(True)
-
-    assert limited_pack.pack_standby is True
-    assert _sent_limits(master) == [(0, 0), (0, 0)]
-
-
-async def test_leaving_standby_restores_both_limits(limited_pack, master):
-    await limited_pack.enable_pack_standby(True)
-    await master.data_parse(_telemetry(_limits(0, 0)))
-    master._conn.send_packet.reset_mock()
-
-    await limited_pack.enable_pack_standby(False)
-
-    assert limited_pack.pack_standby is False
-    assert _sent_limits(master) == [(900, 0), (0, 3000)]
-
-
-@pytest.mark.parametrize(
-    "setter", ["set_feed_grid_pow_limit", "set_grid_in_power_limit"]
-)
-async def test_standby_refuses_a_new_limit(limited_pack, master, setter):
-    await limited_pack.enable_pack_standby(True)
-    master._conn.send_packet.reset_mock()
-
-    with pytest.raises(ValueError, match="standby"):
-        await getattr(limited_pack, setter)(500)
-
-    master._conn.send_packet.assert_not_awaited()
-
-
-async def test_standby_ignores_the_reports_sent_before_its_own_write(
-    limited_pack, master
-):
-    await limited_pack.enable_pack_standby(True)
-    master._conn.send_packet.reset_mock()
-
-    await master.data_parse(_telemetry(_limits(900, 3000)))
-
-    assert limited_pack.pack_standby is True
-    assert not limited_pack._tasks
-
-
-@pytest.mark.parametrize("outside", [(500, 0), (0, 2000), (500, 2000)])
-async def test_an_outside_change_ends_standby_without_writing(
-    limited_pack, master, outside
-):
-    await limited_pack.enable_pack_standby(True)
-    await master.data_parse(_telemetry(_limits(0, 0)))
-    master._conn.send_packet.reset_mock()
-
-    await master.data_parse(_telemetry(_limits(*outside)))
-    await limited_pack.enable_pack_standby(False)
-
-    assert limited_pack.pack_standby is False
-    master._conn.send_packet.assert_not_awaited()
-
-
-async def test_standby_puts_the_limits_back_when_it_can_not_finish(
-    limited_pack, master, slave
-):
-    gone = NotConnectedError("gone")
-    master._conn.send_packet.side_effect = [None, gone, None, None]
-    slave._conn.send_packet.side_effect = [gone]
-
-    with pytest.raises(NotConnectedError):
-        await limited_pack.enable_pack_standby(True)
-
-    assert limited_pack.pack_standby is False
-    assert _sent_limits(master)[-2:] == [(900, 0), (0, 3000)]
-
-
-async def test_standby_keeps_the_first_error_when_the_limits_can_not_go_back(
-    limited_pack, master, slave
-):
-    master._conn.send_packet.side_effect = NotConnectedError("gone")
-    slave._conn.send_packet.side_effect = NotConnectedError("gone")
-
-    with pytest.raises(NotConnectedError):
-        await limited_pack.enable_pack_standby(True)
-
-    assert limited_pack.pack_standby is False
-
-
-async def test_standby_survives_the_first_report_after_a_restart(pack, master):
-    # right after a restart neither limit is known, and they arrive one after the other
-    pack.restore_standby(StandbyLimits(900, 3000))
-
-    await master.data_parse(_telemetry(_limits(0, 0)))
-
-    assert pack.pack_standby is True
-    assert not pack._tasks
-    master._conn.send_packet.assert_not_awaited()
-
-
-async def test_standby_survives_a_restart(pack, master):
-    pack.restore_standby(StandbyLimits(900, 3000))
-
-    await master.data_parse(_telemetry(_limits(0, 0)))
-    master._conn.send_packet.reset_mock()
-    await pack.enable_pack_standby(False)
-
-    assert _sent_limits(master) == [(900, 0), (0, 3000)]
 
 
 async def test_pack_reads_and_sends_its_work_mode(pack, master, slave):
@@ -421,13 +307,6 @@ async def test_pack_keeps_the_old_value_of_a_setting_nobody_accepted(
         await limited_pack.set_feed_grid_pow_limit(600)
 
     assert limited_pack.feed_grid_pow_limit == 900
-
-
-async def test_standby_shows_its_zeros_at_once(limited_pack):
-    await limited_pack.enable_pack_standby(True)
-
-    assert limited_pack.feed_grid_pow_limit == 0
-    assert limited_pack.grid_in_power_limit == 0
 
 
 async def test_pack_keeps_an_interval_a_unit_can_not_take_yet(pack, master, slave):

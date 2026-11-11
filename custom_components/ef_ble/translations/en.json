@@ -1382,9 +1382,6 @@
       },
       "pack_energy_backup": {
         "name": "Pack Backup Reserve"
-      },
-      "pack_standby": {
-        "name": "Pack Standby"
       }
     }
   },

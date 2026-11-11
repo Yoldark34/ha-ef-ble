@@ -1,6 +1,5 @@
 """Home Assistant side of a STREAM pack: its config entry and its members"""
 
-import dataclasses
 import logging
 from collections.abc import Callable
 from datetime import datetime
@@ -17,7 +16,6 @@ from .const import (
     CONF_PACK_ID,
     CONF_PACK_REPORT_INTERVAL,
     CONF_PACK_SERIAL,
-    CONF_PACK_STANDBY,
     CONF_PACK_UNITS,
     DOMAIN,
 )
@@ -28,7 +26,6 @@ from .eflib.pack import (
     PACK_KEYS,
     PACK_KEYS_OFF_BY_DEFAULT,
     Pack,
-    StandbyLimits,
 )
 from .registry import async_get_device
 
@@ -45,6 +42,9 @@ _FIRST_UNIT_KEY = "energy_backup_battery_level"
 _LINK_DELAY = 30
 
 _LOGGER = logging.getLogger(__name__)
+
+# Entry data of the Pack Standby switch, removed; kept here only to clean it up
+_REMOVED_STANDBY_KEY = "pack_standby"
 
 
 def is_pack_entry(entry: ConfigEntry) -> bool:
@@ -282,14 +282,12 @@ async def async_setup_pack_entry(hass: HomeAssistant, entry: ConfigEntry) -> boo
 
     pack.on_report_interval_chosen = remember_report_interval
 
-    @callback
-    def remember_standby(limits: StandbyLimits | None) -> None:
-        data = {**entry.data, CONF_PACK_STANDBY: limits and dataclasses.asdict(limits)}
-        hass.config_entries.async_update_entry(entry, data=data)
-
-    pack.on_standby_changed = remember_standby
-    if saved := entry.data.get(CONF_PACK_STANDBY):
-        pack.restore_standby(StandbyLimits(**saved))
+    if _REMOVED_STANDBY_KEY in entry.data:
+        # Pack Standby is gone: drop what it kept, the units hold their own limits
+        hass.config_entries.async_update_entry(
+            entry,
+            data={k: v for k, v in entry.data.items() if k != _REMOVED_STANDBY_KEY},
+        )
     for serial in entry.data.get(CONF_PACK_UNITS, []):
         pack.known_unit(serial)
     entry.runtime_data = pack

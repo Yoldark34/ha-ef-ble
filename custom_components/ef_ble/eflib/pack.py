@@ -4,7 +4,6 @@ import asyncio
 import logging
 from collections import defaultdict
 from collections.abc import Callable, Coroutine
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from bleak.exc import BleakError
@@ -260,14 +259,6 @@ def _unit_class(serial_number: str) -> type[PackUnit]:
     return SolarPackUnit if serial_number.startswith("ES21") else PackUnit
 
 
-@dataclass(frozen=True)
-class StandbyLimits:
-    """The limits a pack had when it went into standby, to go back to"""
-
-    feed_grid_pow_limit: int
-    grid_in_power_limit: int
-
-
 class Pack(_VirtualDevice):
     """STREAM 5000 Pack"""
 
@@ -297,7 +288,6 @@ class Pack(_VirtualDevice):
     feed_grid_pow_max = Field[int]()
     grid_in_power_limit = Field[int]()
     report_interval = Field[float]()
-    pack_standby = Field[bool]()
     work_mode = Field[WorkMode]()
 
     def __init__(self, pack_id: str, serial_number: str = "") -> None:
@@ -310,13 +300,7 @@ class Pack(_VirtualDevice):
         # owner chose, and which entities a new unit needs
         self.resolve_unit_address: Callable[[str], str | None] = lambda _serial: None
         self.on_report_interval_chosen: Callable[[float], None] = lambda _seconds: None
-        self.on_standby_changed: Callable[[StandbyLimits | None], None] = (
-            lambda _limits: None
-        )
         self.new_unit_listeners: list[Callable[[PackUnit], None]] = []
-        self.pack_standby = False
-        self._standby_limits: StandbyLimits | None = None
-        self._standby_confirmed = False
         self._members: dict[Member, list[Callable[[], None]]] = {}
         self._tasks: set[asyncio.Task[Any]] = set()
 
@@ -445,42 +429,13 @@ class Pack(_VirtualDevice):
         self.reset_updated()
         setattr(self, pack_field, value)
         self._notify_updated()
-        if pack_field in ("feed_grid_pow_limit", "grid_in_power_limit"):
-            self._watch_standby()
 
     def _show(self, pack_field: str, value: Any) -> None:
         # A unit only echoes a setting in its next report, up to an interval later, so
-        # this shows what was just accepted, as the app does. Not through `_update`: it
-        # says nothing of what the units hold, which standby needs to tell apart
+        # this shows what was just accepted, as the app does
         self.reset_updated()
         setattr(self, pack_field, value)
         self._notify_updated()
-
-    def restore_standby(self, limits: StandbyLimits) -> None:
-        """Pick up a standby from a previous run, already applied to the units"""
-        self._standby_limits = limits
-        self._standby_confirmed = True
-        self.reset_updated()
-        self.pack_standby = True
-        self._notify_updated()
-
-    def _watch_standby(self) -> None:
-        if self._standby_limits is None:
-            return
-        limits = (self.feed_grid_pow_limit, self.grid_in_power_limit)
-        # After a restart the two arrive one at a time, and an unknown one says nothing
-        if None in limits:
-            return
-        if not self._standby_confirmed:
-            # The units take a report to echo the zeros, so what came before them says
-            # nothing about what anyone else did
-            self._standby_confirmed = limits == (0, 0)
-            return
-        if limits != (0, 0):
-            # Whoever changed them chose what the pack does now, so nothing is written
-            # back: only turning standby off in Home Assistant restores the old values
-            _LOGGER.debug("Limits changed outside of standby, leaving it")
-            self._set_standby(None)
 
     def _spawn(self, coroutine: Coroutine[Any, Any, Any]) -> None:
         task = asyncio.create_task(coroutine)
@@ -551,37 +506,17 @@ class Pack(_VirtualDevice):
         self._show("energy_backup_battery_level", int(value))
         return True
 
-    def _refuse_during_standby(self) -> None:
-        if self.pack_standby:
-            raise ValueError("The pack is in standby, turn it off to change this limit")
-
     @controls.power(feed_grid_pow_limit, max=dynamic(feed_grid_pow_max))
     async def set_feed_grid_pow_limit(self, value: float):
-        self._refuse_during_standby()
         await self._command("set_feed_grid_pow_limit", value)
         self._show("feed_grid_pow_limit", int(value))
         return True
 
     @controls.power(grid_in_power_limit, max=_GRID_IN_POWER_MAX)
     async def set_grid_in_power_limit(self, value: float):
-        self._refuse_during_standby()
         await self._command("set_grid_in_power_limit", value)
         self._show("grid_in_power_limit", int(value))
         return True
-
-    def _set_standby(self, limits: StandbyLimits | None) -> None:
-        self._standby_limits = limits
-        self._standby_confirmed = False
-        self.on_standby_changed(limits)
-        self.reset_updated()
-        self.pack_standby = limits is not None
-        self._notify_updated()
-
-    async def _write_limits(self, feed: int, grid_in: int) -> None:
-        await self._command("set_feed_grid_pow_limit", feed)
-        self._show("feed_grid_pow_limit", feed)
-        await self._command("set_grid_in_power_limit", grid_in)
-        self._show("grid_in_power_limit", grid_in)
 
     # The two left out are not offered in the app's mode list, but stay readable
     @controls.select(
@@ -593,47 +528,6 @@ class Pack(_VirtualDevice):
     async def set_work_mode(self, mode: WorkMode):
         await self._command("set_work_mode", mode)
         self._show("work_mode", mode)
-
-    @controls.switch(pack_standby)
-    async def enable_pack_standby(self, enabled: bool):
-        if enabled:
-            await self._enter_standby()
-        else:
-            await self._leave_standby()
-
-    async def _enter_standby(self) -> None:
-        if self.pack_standby:
-            return
-        if self.feed_grid_pow_limit is None or self.grid_in_power_limit is None:
-            raise ValueError("The pack's limits are not known yet")
-
-        limits = StandbyLimits(self.feed_grid_pow_limit, self.grid_in_power_limit)
-        try:
-            await self._write_limits(0, 0)
-        except NotConnectedError:
-            # One limit may have gone through, and a pack half in standby is the worst of
-            # both, so put it back before reporting the failure
-            await self._put_limits_back(limits)
-            raise
-        self._set_standby(limits)
-
-    async def _put_limits_back(self, limits: StandbyLimits) -> None:
-        try:
-            await self._write_limits(
-                limits.feed_grid_pow_limit, limits.grid_in_power_limit
-            )
-        except NotConnectedError:
-            _LOGGER.warning(
-                "Could not restore the pack's limits to %s W and %s W",
-                limits.feed_grid_pow_limit,
-                limits.grid_in_power_limit,
-            )
-
-    async def _leave_standby(self) -> None:
-        if (limits := self._standby_limits) is None:
-            return
-        await self._write_limits(limits.feed_grid_pow_limit, limits.grid_in_power_limit)
-        self._set_standby(None)
 
     @controls.duration(report_interval, min=10, max=120, step=5)
     async def set_report_interval(self, seconds: float):

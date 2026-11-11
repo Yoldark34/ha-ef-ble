@@ -384,12 +384,6 @@
         "state": {
           "off": "mdi:battery-sync-outline"
         }
-      },
-      "pack_standby": {
-        "default": "mdi:sleep",
-        "state": {
-          "off": "mdi:sleep-off"
-        }
       }
     },
     "select": {

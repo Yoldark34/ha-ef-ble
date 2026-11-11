@@ -15,7 +15,6 @@ CONF_PACK_ID = "pack_id"
 CONF_PACK_SERIAL = "pack_serial"
 CONF_PACK_UNITS = "pack_units"
 CONF_PACK_REPORT_INTERVAL = "pack_report_interval"
-CONF_PACK_STANDBY = "pack_standby"
 CONF_PACK_DEFAULTS_APPLIED = "pack_defaults_applied"
 
 CONF_ADVANCED_CONNECTION_OPTIONS = "advanced_connection_options"

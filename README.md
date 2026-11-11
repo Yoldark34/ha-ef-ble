@@ -485,7 +485,6 @@ each battery under it. See the
 
 **Pack controls**
 
-- Standby
 - Work mode (self-consumption, AI mode, schedule)
 - Backup reserve (on/off and level)
 - Charge limit, discharge limit
